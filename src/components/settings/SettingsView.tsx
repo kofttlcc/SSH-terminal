@@ -255,7 +255,7 @@ export const SettingsView: React.FC = () => {
                   </span>
                 </h2>
                 <p className="text-xs text-mutedDark">
-                  支援 OpenAI、Claude 3.7、Google Gemini、DeepSeek-R1、Ollama 本地大模型與自訂端點
+                  支援 GPT-5.6、Claude 5、Gemini 3.7、DeepSeek-V4、Qwen3、Kimi K3、GLM-5.3、Ollama 等 11+ 服務商
                 </p>
               </div>
             </div>
