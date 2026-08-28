@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS: TerminalSettings = {
   copyOnSelect: true,
   bellSound: false,
   localShell: process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh'),
-  renderMode: 'canvas',
+  renderMode: 'dom',
   touchIdEnabled: false,
   touchIdForHosts: false,
   aiConfig: {

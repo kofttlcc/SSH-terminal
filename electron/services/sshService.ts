@@ -322,14 +322,12 @@ export class SSHService {
           }
         }
 
-        // Enable SSH Agent Forwarding with Touch ID support if agentService is available
-        if (this.agentService) {
+        // Enable SSH Agent Forwarding with Touch ID support only if explicitly enabled
+        if (this.agentService && (host.agentForward === true || host.authType === 'agent')) {
           const sockPath = this.agentService.getSocketPath();
           if (sockPath) {
             config.agent = sockPath;
-            if (host.agentForward !== false) {
-              config.agentForward = true;
-            }
+            config.agentForward = true;
           }
         }
 

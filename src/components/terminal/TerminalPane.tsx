@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { CanvasAddon } from '@xterm/addon-canvas';
 import '@xterm/xterm/css/xterm.css';
 import { 
   Terminal as TerminalIcon, 
@@ -124,16 +123,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     term.loadAddon(searchAddon);
 
     term.open(containerRef.current);
-
-    // If canvas renderer is selected, try loading it safely with DOM fallback
-    if (settings.renderMode === 'canvas') {
-      try {
-        const canvasAddon = new CanvasAddon();
-        term.loadAddon(canvasAddon);
-      } catch (e) {
-        console.warn('CanvasAddon load failed, using native DOM renderer:', e);
-      }
-    }
 
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -351,17 +340,24 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     if ((window as any).electronAPI) {
       if (pane.isLocal) {
-        const res = await (window as any).electronAPI.terminal.createLocalPty(sessionId, settings.localShell);
-        if (res.success) {
-          term.clear();
-          setConnected(true);
-          setConnecting(false);
-          updatePaneState(pane.paneId, { status: 'connected' });
-        } else {
+        try {
+          const res = await (window as any).electronAPI.terminal.createLocalPty(sessionId, settings.localShell);
+          if (res?.success) {
+            term.clear();
+            setConnected(true);
+            setConnecting(false);
+            updatePaneState(pane.paneId, { status: 'connected' });
+          } else {
+            setConnected(false);
+            setConnecting(false);
+            term.writeln(`\x1b[31m啟動本地 Shell 失敗: ${res?.error || '未知錯誤'}\x1b[0m`);
+            updatePaneState(pane.paneId, { status: 'error', errorMessage: res?.error });
+          }
+        } catch (err: any) {
           setConnected(false);
           setConnecting(false);
-          term.writeln(`\x1b[31m啟動本地 Shell 失敗: ${res.error}\x1b[0m`);
-          updatePaneState(pane.paneId, { status: 'error', errorMessage: res.error });
+          term.writeln(`\x1b[31m啟動本地 Shell 異常: ${err.message || '未知錯誤'}\x1b[0m`);
+          updatePaneState(pane.paneId, { status: 'error', errorMessage: err.message });
         }
       } else if (host && host.protocol === 'serial') {
         const portPath = host.serialPort || host.hostname;
@@ -369,48 +365,62 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
         term.writeln(`\x1b[33m正在開啟 Serial 串口設備: ${portPath} (${baud} 8N1)...\x1b[0m`);
 
         if ((window as any).electronAPI.serial) {
-          const res = await (window as any).electronAPI.serial.create(sessionId, {
-            portPath,
-            baudRate: baud,
-            dataBits: host.dataBits || 8,
-            stopBits: host.stopBits || 1,
-            parity: host.parity || 'none',
-            flowControl: host.flowControl || 'none'
-          });
+          try {
+            const res = await (window as any).electronAPI.serial.create(sessionId, {
+              portPath,
+              baudRate: baud,
+              dataBits: host.dataBits || 8,
+              stopBits: host.stopBits || 1,
+              parity: host.parity || 'none',
+              flowControl: host.flowControl || 'none'
+            });
 
-          if (res.success) {
+            if (res?.success) {
+              term.clear();
+              term.writeln(`\x1b[32m✔ 已連線至 Serial 串口: ${portPath} (${baud} 8N1)\x1b[0m`);
+              term.writeln(`\x1b[90m[提示: 串口控制台已就緒，請敲擊鍵盤 Enter 鍵獲取交換機/路由器輸出]\x1b[0m\r\n`);
+              setConnected(true);
+              setConnecting(false);
+              updatePaneState(pane.paneId, { status: 'connected' });
+            } else {
+              setConnected(false);
+              setConnecting(false);
+              term.writeln(`\x1b[31mSerial 串口開啟失敗: ${res?.error || '未知錯誤'}\x1b[0m`);
+              updatePaneState(pane.paneId, { status: 'error', errorMessage: res?.error });
+            }
+          } catch (err: any) {
+            setConnected(false);
+            setConnecting(false);
+            term.writeln(`\x1b[31mSerial 串口開啟異常: ${err.message || '未知錯誤'}\x1b[0m`);
+            updatePaneState(pane.paneId, { status: 'error', errorMessage: err.message });
+          }
+        }
+      } else if (host) {
+        try {
+          const jumpHost = host.jumpHostId ? hosts.find((h) => h.id === host.jumpHostId) : undefined;
+          const res = await (window as any).electronAPI.terminal.connectSSH(
+            sessionId,
+            host,
+            term.cols || 80,
+            term.rows || 24,
+            jumpHost
+          );
+          if (res?.success) {
             term.clear();
-            term.writeln(`\x1b[32m✔ 已連線至 Serial 串口: ${portPath} (${baud} 8N1)\x1b[0m`);
-            term.writeln(`\x1b[90m[提示: 串口控制台已就緒，請敲擊鍵盤 Enter 鍵獲取交換機/路由器輸出]\x1b[0m\r\n`);
             setConnected(true);
             setConnecting(false);
             updatePaneState(pane.paneId, { status: 'connected' });
           } else {
             setConnected(false);
             setConnecting(false);
-            term.writeln(`\x1b[31mSerial 串口開啟失敗: ${res.error}\x1b[0m`);
-            updatePaneState(pane.paneId, { status: 'error', errorMessage: res.error });
+            term.writeln(`\x1b[31mSSH 連線失敗: ${res?.error || '連線逾時或未響應'}\x1b[0m`);
+            updatePaneState(pane.paneId, { status: 'error', errorMessage: res?.error });
           }
-        }
-      } else if (host) {
-        const jumpHost = host.jumpHostId ? hosts.find((h) => h.id === host.jumpHostId) : undefined;
-        const res = await (window as any).electronAPI.terminal.connectSSH(
-          sessionId,
-          host,
-          term.cols || 80,
-          term.rows || 24,
-          jumpHost
-        );
-        if (res.success) {
-          term.clear();
-          setConnected(true);
-          setConnecting(false);
-          updatePaneState(pane.paneId, { status: 'connected' });
-        } else {
+        } catch (err: any) {
           setConnected(false);
           setConnecting(false);
-          term.writeln(`\x1b[31mSSH 連線失敗: ${res.error}\x1b[0m`);
-          updatePaneState(pane.paneId, { status: 'error', errorMessage: res.error });
+          term.writeln(`\x1b[31mSSH 連線發生異常: ${err.message || '未知錯誤'}\x1b[0m`);
+          updatePaneState(pane.paneId, { status: 'error', errorMessage: err.message });
         }
       } else {
         setConnected(false);
@@ -654,7 +664,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
       {/* xterm.js Terminal Canvas Wrapper */}
       <div 
         ref={containerRef} 
-        className="flex-1 w-full h-full overflow-hidden p-2"
+        className="flex-1 w-full min-h-0 overflow-hidden p-2"
       />
     </div>
   );

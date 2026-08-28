@@ -63,7 +63,7 @@ const DEFAULT_SETTINGS: TerminalSettings = {
   copyOnSelect: true,
   bellSound: false,
   localShell: '/bin/zsh',
-  renderMode: 'canvas',
+  renderMode: 'dom',
   touchIdEnabled: false,
   touchIdForHosts: false
 };
