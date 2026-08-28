@@ -78,7 +78,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         var parent: NativeTerminalPaneView
         weak var textView: CustomTerminalTextView?
         weak var appState: AppState?
-        private var decoders: [String: Utf8StreamDecoder] = [:]
+        private var emulators: [String: TerminalEmulator] = [:]
 
         init(_ parent: NativeTerminalPaneView) {
             self.parent = parent
@@ -86,6 +86,10 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
 
         func startSession(appState: AppState, pane: TerminalPaneState) {
             let sid = pane.sessionId ?? pane.paneId
+
+            if emulators[sid] == nil {
+                emulators[sid] = TerminalEmulator(cols: 120, rows: 36)
+            }
 
             if pane.isLocal {
                 // If local PTY session is already running, simply re-bind listener!
@@ -185,110 +189,29 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         }
 
         func appendPlainText(_ text: String, sessionId: String) {
-            let storage = appState?.terminalStorages[sessionId] ?? textView?.textStorage
-            guard let textStorage = storage else { return }
-
-            let attr = NSAttributedString(
-                string: text,
-                attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 13.0, weight: .regular),
-                    .foregroundColor: NSColor(red: 56/255.0, green: 189/255.0, blue: 248/255.0, alpha: 1.0)
-                ]
-            )
-            textStorage.append(attr)
-            textView?.setSelectedRange(NSRange(location: textStorage.length, length: 0))
-            textView?.scrollToEndOfDocument(nil)
-            textView?.needsDisplay = true
+            if let data = text.data(using: .utf8) {
+                appendRawData(data, sessionId: sessionId)
+            }
         }
 
         func appendRawData(_ data: Data, sessionId: String) {
             let storage = appState?.terminalStorages[sessionId] ?? textView?.textStorage
             guard let textStorage = storage else { return }
 
-            if decoders[sessionId] == nil {
-                decoders[sessionId] = Utf8StreamDecoder()
+            if emulators[sessionId] == nil {
+                emulators[sessionId] = TerminalEmulator(cols: 120, rows: 36)
             }
-            guard let decoder = decoders[sessionId] else { return }
+            guard let emulator = emulators[sessionId] else { return }
 
-            let decodedString = decoder.decode(data)
-            guard !decodedString.isEmpty else { return }
+            emulator.feed(data: data)
+            let render = emulator.render()
 
-            let clean = cleanAnsi(decodedString)
-            guard !clean.isEmpty else { return }
-
-            let attr = NSAttributedString(
-                string: clean,
-                attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 13.0, weight: .regular),
-                    .foregroundColor: NSColor(red: 226/255.0, green: 232/255.0, blue: 240/255.0, alpha: 1.0)
-                ]
-            )
-            textStorage.append(attr)
-            textView?.setSelectedRange(NSRange(location: textStorage.length, length: 0))
+            textStorage.setAttributedString(render.attributedString)
+            textView?.terminalCursorCharIndex = render.cursorCharIndex
+            textView?.setSelectedRange(NSRange(location: render.cursorCharIndex, length: 0))
             textView?.scrollToEndOfDocument(nil)
             textView?.needsDisplay = true
         }
-
-        private func cleanAnsi(_ text: String) -> String {
-            var str = text
-            // 1. OSC sequences: \x1b]...(\x07|\x1b\\)
-            str = str.replacingOccurrences(of: "\u{001B}\\][^\u{0007}\u{001B}]*(\u{0007}|\u{001B}\\\\)?", with: "", options: .regularExpression)
-            
-            // 2. CSI sequences: \x1b\[[?>=<]?[0-9;]*[a-zA-Z~]
-            str = str.replacingOccurrences(of: "\u{001B}\\[[?>=<]?[0-9;]*[a-zA-Z~]", with: "", options: .regularExpression)
-            
-            // 3. 2-character escape sequences: \x1b[@-Z\\-_=><]
-            str = str.replacingOccurrences(of: "\u{001B}[@-Z\\\\-_=><]", with: "", options: .regularExpression)
-            
-            // 4. Standalone escape or control characters (\x00-\x08, \x0B, \x0C, \x0E-\x1F except \t, \n, \r)
-            str = str.replacingOccurrences(of: "[\u{0000}-\u{0008}\u{000B}\u{000C}\u{000E}-\u{001F}\u{007F}]", with: "", options: .regularExpression)
-            
-            return str
-        }
-    }
-}
-
-public class Utf8StreamDecoder {
-    private var buffer = Data()
-
-    public init() {}
-
-    public func decode(_ data: Data) -> String {
-        buffer.append(data)
-        
-        var validLen = buffer.count
-        while validLen > 0 {
-            let lastByte = buffer[validLen - 1]
-            if (lastByte & 0x80) == 0 {
-                break
-            }
-            var leadIdx = validLen - 1
-            while leadIdx >= 0 && (buffer[leadIdx] & 0xC0) == 0x80 {
-                leadIdx -= 1
-            }
-            if leadIdx >= 0 {
-                let leadByte = buffer[leadIdx]
-                let expectedLen: Int
-                if (leadByte & 0xE0) == 0xC0 { expectedLen = 2 }
-                else if (leadByte & 0xF0) == 0xE0 { expectedLen = 3 }
-                else if (leadByte & 0xF8) == 0xF0 { expectedLen = 4 }
-                else { expectedLen = 1 }
-
-                let available = buffer.count - leadIdx
-                if available < expectedLen {
-                    validLen = leadIdx
-                }
-            }
-            break
-        }
-
-        if validLen == 0 {
-            return ""
-        }
-
-        let readyData = buffer.subdata(in: 0..<validLen)
-        buffer.removeSubrange(0..<validLen)
-        return String(decoding: readyData, as: UTF8.self)
     }
 }
 
@@ -296,6 +219,7 @@ public class CustomTerminalTextView: NSTextView {
     public weak var appState: AppState?
     public var sessionId: String = ""
     public var tabId: String = ""
+    public var terminalCursorCharIndex: Int = 0
 
     private var cursorTimer: Timer?
     private var isCursorVisible: Bool = true
@@ -332,8 +256,11 @@ public class CustomTerminalTextView: NSTextView {
 
     public override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn: Bool) {
         let isFocused = (self.window?.firstResponder === self)
+        
+        // Exact 1-character cell cursor width (8.0pt) and height (16.0pt)
         var blockRect = rect
-        blockRect.size.width = max(rect.width * 2, 8.5)
+        blockRect.size.width = 8.0
+        blockRect.size.height = max(rect.height, 16.0)
 
         let cursorColor = NSColor(red: 56/255.0, green: 189/255.0, blue: 248/255.0, alpha: 0.95)
 
@@ -355,27 +282,22 @@ public class CustomTerminalTextView: NSTextView {
     public override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        // Draw terminal cursor block at insertion position
+        // Draw terminal cursor block at exact character cell position
         if self.selectedRange().length == 0, let layoutManager = self.layoutManager, let textContainer = self.textContainer {
             let totalLen = (self.string as NSString).length
-            let charIndex = min(self.selectedRange().location, totalLen)
+            let charIndex = min(self.terminalCursorCharIndex, totalLen)
             
             var cursorRect: NSRect
             if totalLen == 0 {
-                cursorRect = NSRect(x: 4, y: 4, width: 8.5, height: 16)
-            } else if charIndex >= totalLen {
-                let glyphIndex = layoutManager.glyphIndexForCharacter(at: max(0, totalLen - 1))
-                let charRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
-                
-                if (self.string as NSString).hasSuffix("\n") || (self.string as NSString).hasSuffix("\r") {
-                    cursorRect = NSRect(x: 4, y: charRect.maxY, width: 8.5, height: charRect.height > 0 ? charRect.height : 16)
-                } else {
-                    cursorRect = NSRect(x: charRect.maxX, y: charRect.minY, width: 8.5, height: charRect.height > 0 ? charRect.height : 16)
-                }
-            } else {
+                cursorRect = NSRect(x: 4, y: 4, width: 8.0, height: 16.0)
+            } else if charIndex < totalLen {
                 let glyphIndex = layoutManager.glyphIndexForCharacter(at: charIndex)
                 let charRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
-                cursorRect = NSRect(x: charRect.minX, y: charRect.minY, width: 8.5, height: charRect.height > 0 ? charRect.height : 16)
+                cursorRect = NSRect(x: charRect.minX, y: charRect.minY, width: 8.0, height: max(charRect.height, 16.0))
+            } else {
+                let glyphIndex = layoutManager.glyphIndexForCharacter(at: max(0, totalLen - 1))
+                let charRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+                cursorRect = NSRect(x: charRect.maxX, y: charRect.minY, width: 8.0, height: max(charRect.height, 16.0))
             }
 
             drawInsertionPoint(in: cursorRect, color: self.insertionPointColor, turnedOn: isCursorVisible)
