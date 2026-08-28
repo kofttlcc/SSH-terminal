@@ -23,7 +23,7 @@ public struct NativeMacOSTextField: NSViewRepresentable {
     }
 
     public func makeNSView(context: Context) -> NSTextField {
-        let textField = CustomNSTextField()
+        let textField = NSTextField()
         textField.delegate = context.coordinator
         textField.placeholderString = placeholder
         textField.isBordered = false
@@ -38,10 +38,15 @@ public struct NativeMacOSTextField: NSViewRepresentable {
     }
 
     public func updateNSView(_ nsView: NSTextField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
+        // Only update text programmatically if the user is NOT actively editing the field
+        if nsView.currentEditor() == nil {
+            if nsView.stringValue != text {
+                nsView.stringValue = text
+            }
         }
-        nsView.placeholderString = placeholder
+        if nsView.placeholderString != placeholder {
+            nsView.placeholderString = placeholder
+        }
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -65,18 +70,5 @@ public struct NativeMacOSTextField: NSViewRepresentable {
             self.parent.text = sender.stringValue
             self.parent.onSubmit?()
         }
-    }
-}
-
-public class CustomNSTextField: NSTextField {
-    public override var acceptsFirstResponder: Bool { true }
-
-    public override func becomeFirstResponder() -> Bool {
-        let result = super.becomeFirstResponder()
-        if result {
-            // Select all or place cursor at end
-            self.currentEditor()?.selectedRange = NSRange(location: self.stringValue.count, length: 0)
-        }
-        return result
     }
 }

@@ -244,6 +244,12 @@ public class CustomTerminalTextView: NSTextView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        // Strictly verify that this terminal view is currently the active focused firstResponder in the window
+        guard let window = self.window, window.firstResponder === self else {
+            super.keyDown(with: event)
+            return
+        }
+
         guard let chars = event.characters, !chars.isEmpty else {
             super.keyDown(with: event)
             return
