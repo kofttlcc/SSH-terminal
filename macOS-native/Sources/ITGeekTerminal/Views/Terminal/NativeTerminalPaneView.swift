@@ -23,6 +23,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         contentController.add(context.coordinator, name: "terminalData")
         contentController.add(context.coordinator, name: "terminalResize")
         contentController.add(context.coordinator, name: "terminalReady")
+        contentController.add(context.coordinator, name: "terminalLog")
         config.userContentController = contentController
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
 
@@ -39,7 +40,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         context.coordinator.appState = appState
         context.coordinator.loadTerminalHTML(webView: webView)
 
-        // Start session and prompt Touch ID immediately without delay!
+        // Start session immediately
         context.coordinator.startSession(appState: appState, pane: pane)
 
         return webView
@@ -74,29 +75,29 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         }
 
         func loadTerminalHTML(webView: WKWebView) {
-            var htmlURL: URL? = nil
+            var targetURL: URL? = nil
 
             // 1. Check App Bundle Resources
             if let bundleURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "terminal_bundle") {
-                htmlURL = bundleURL
+                targetURL = bundleURL
             } else if let resourcePath = Bundle.main.resourcePath {
                 let directPath = URL(fileURLWithPath: resourcePath).appendingPathComponent("terminal_bundle/index.html")
                 if FileManager.default.fileExists(atPath: directPath.path) {
-                    htmlURL = directPath
+                    targetURL = directPath
                 }
             }
 
             // 2. Development Fallback Path
-            if htmlURL == nil {
+            if targetURL == nil {
                 let devPath = "/Users/lijt/項目/SSH-terminal/macOS-native/Sources/ITGeekTerminal/Resources/terminal_bundle/index.html"
                 if FileManager.default.fileExists(atPath: devPath) {
-                    htmlURL = URL(fileURLWithPath: devPath)
+                    targetURL = URL(fileURLWithPath: devPath)
                 }
             }
 
-            if let targetURL = htmlURL {
-                let readAccessURL = targetURL.deletingLastPathComponent()
-                webView.loadFileURL(targetURL, allowingReadAccessTo: readAccessURL)
+            if let url = targetURL, let html = try? String(contentsOf: url, encoding: .utf8) {
+                let baseURL = url.deletingLastPathComponent()
+                webView.loadHTMLString(html, baseURL: baseURL)
             } else {
                 print("Error: Could not locate terminal_bundle/index.html")
             }
@@ -110,10 +111,11 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 self.isTerminalReady = true
 
                 // Flush pending buffered data
-                for data in pendingData {
+                let queued = self.pendingData
+                self.pendingData.removeAll()
+                for data in queued {
                     writeToXterm(data: data)
                 }
-                pendingData.removeAll()
 
                 webView.evaluateJavaScript("if (window.fitTerminal) { window.fitTerminal(); window.focusTerminal(); }", completionHandler: nil)
             } else if message.name == "terminalData" {
@@ -126,6 +128,8 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                    let rows = dict["rows"] as? Int {
                     appState.resizeSession(sessionId: sid, cols: UInt16(cols), rows: UInt16(rows))
                 }
+            } else if message.name == "terminalLog" {
+                print("[Xterm JS Log]: \(message.body)")
             }
         }
 

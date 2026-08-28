@@ -22,15 +22,18 @@
         #terminal-container {
             width: 100%;
             height: 100%;
-            padding: 4px 8px;
+            padding: 4px 6px;
         }
         .xterm {
             height: 100%;
+            font-feature-settings: "liga" 0;
+            position: relative;
+            user-select: text;
+            -webkit-user-select: text;
         }
         .xterm .xterm-viewport {
             background-color: #090a0f !important;
         }
-        /* Custom scrollbar matching dark theme */
         ::-webkit-scrollbar {
             width: 8px;
         }
@@ -54,6 +57,10 @@
     <script src="addon-unicode11.js"></script>
     <script>
         (function() {
+            window.onerror = function(msg, url, line) {
+                console.error("Global JS Error:", msg, url, line);
+            };
+
             const container = document.getElementById('terminal-container');
             
             const term = new Terminal({
@@ -94,35 +101,49 @@
                 }
             });
 
-            const fitAddon = new FitAddon.FitAddon();
-            term.loadAddon(fitAddon);
+            // Safe Addon Loading
+            let fitAddon = null;
+            try {
+                if (typeof FitAddon === 'function') {
+                    fitAddon = new FitAddon();
+                } else if (typeof FitAddon === 'object' && typeof FitAddon.FitAddon === 'function') {
+                    fitAddon = new FitAddon.FitAddon();
+                }
+                if (fitAddon) {
+                    term.loadAddon(fitAddon);
+                }
+            } catch (e) {
+                console.warn("FitAddon error:", e);
+            }
 
-            if (window.Unicode11Addon) {
-                const unicode11Addon = new Unicode11Addon.Unicode11Addon();
-                term.loadAddon(unicode11Addon);
-                term.unicode.activeVersion = '11';
+            try {
+                if (typeof Unicode11Addon === 'function') {
+                    const u11 = new Unicode11Addon();
+                    term.loadAddon(u11);
+                    term.unicode.activeVersion = '11';
+                } else if (typeof Unicode11Addon === 'object' && typeof Unicode11Addon.Unicode11Addon === 'function') {
+                    const u11 = new Unicode11Addon.Unicode11Addon();
+                    term.loadAddon(u11);
+                    term.unicode.activeVersion = '11';
+                }
+            } catch (e) {
+                console.warn("Unicode11Addon error:", e);
             }
 
             term.open(container);
-            fitAddon.fit();
-
-            // Notify Swift of initial size
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalResize) {
-                window.webkit.messageHandlers.terminalResize.postMessage({
-                    cols: term.cols,
-                    rows: term.rows
-                });
+            if (fitAddon) {
+                fitAddon.fit();
             }
 
             // Keystrokes -> Swift
-            term.onData(data => {
+            term.onData(function(data) {
                 if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalData) {
                     window.webkit.messageHandlers.terminalData.postMessage(data);
                 }
             });
 
             // Resize -> Swift
-            term.onResize(size => {
+            term.onResize(function(size) {
                 if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalResize) {
                     window.webkit.messageHandlers.terminalResize.postMessage({
                         cols: size.cols,
@@ -131,12 +152,22 @@
                 }
             });
 
+            // Initial notify of size
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalResize) {
+                window.webkit.messageHandlers.terminalResize.postMessage({
+                    cols: term.cols,
+                    rows: term.rows
+                });
+            }
+
             // Window resize handler with debounce
             let resizeTimeout = null;
-            window.addEventListener('resize', () => {
+            window.addEventListener('resize', function() {
                 clearTimeout(resizeTimeout);
-                resizeTimeout = setTimeout(() => {
-                    fitAddon.fit();
+                resizeTimeout = setTimeout(function() {
+                    if (fitAddon) {
+                        fitAddon.fit();
+                    }
                 }, 30);
             });
 
@@ -159,7 +190,9 @@
             };
 
             window.fitTerminal = function() {
-                fitAddon.fit();
+                if (fitAddon) {
+                    fitAddon.fit();
+                }
             };
 
             window.focusTerminal = function() {
