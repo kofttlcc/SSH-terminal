@@ -63,10 +63,6 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
             if let existingStorage = appState.terminalStorages[sid], textView.textStorage !== existingStorage {
                 textView.layoutManager?.replaceTextStorage(existingStorage)
             }
-
-            if isActive && textView.window?.firstResponder != textView {
-                textView.window?.makeFirstResponder(textView)
-            }
         }
     }
 
