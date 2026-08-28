@@ -33,6 +33,12 @@ if [ -f "${NATIVE_DIR}/Resources/AppIcon.icns" ]; then
     cp "${NATIVE_DIR}/Resources/AppIcon-1024.png" "${RESOURCES_DIR}/AppIcon.png"
 fi
 
+# Copy Terminal Web Bundle
+if [ -d "${NATIVE_DIR}/Sources/ITGeekTerminal/Resources/terminal_bundle" ]; then
+    rm -rf "${RESOURCES_DIR}/terminal_bundle"
+    cp -R "${NATIVE_DIR}/Sources/ITGeekTerminal/Resources/terminal_bundle" "${RESOURCES_DIR}/"
+fi
+
 # Write Info.plist
 cat <<EOF > "${CONTENTS_DIR}/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>

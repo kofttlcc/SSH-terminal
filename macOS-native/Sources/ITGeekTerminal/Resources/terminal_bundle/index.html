@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ITGeek Terminal</title>
+    <link rel="stylesheet" href="xterm.css" />
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #090a0f;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #terminal-container {
+            width: 100%;
+            height: 100%;
+            padding: 4px 8px;
+        }
+        .xterm {
+            height: 100%;
+        }
+        .xterm .xterm-viewport {
+            background-color: #090a0f !important;
+        }
+        /* Custom scrollbar matching dark theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+    </style>
+</head>
+<body>
+    <div id="terminal-container"></div>
+
+    <script src="xterm.js"></script>
+    <script src="addon-fit.js"></script>
+    <script src="addon-unicode11.js"></script>
+    <script>
+        (function() {
+            const container = document.getElementById('terminal-container');
+            
+            const term = new Terminal({
+                cursorBlink: true,
+                cursorStyle: 'block',
+                cursorWidth: 2,
+                fontSize: 13,
+                fontFamily: 'Menlo, Monaco, "Courier New", monospace, "PingFang SC", "Microsoft YaHei"',
+                lineHeight: 1.2,
+                letterSpacing: 0,
+                scrollback: 10000,
+                allowTransparency: true,
+                macOptionIsMeta: true,
+                macOptionClickForcesSelection: true,
+                theme: {
+                    background: '#090a0f',
+                    foreground: '#e2e8f0',
+                    cursor: '#38bdf8',
+                    cursorAccent: '#090a0f',
+                    selectionBackground: 'rgba(56, 189, 248, 0.3)',
+                    selectionForeground: '#ffffff',
+                    black: '#0f172a',
+                    red: '#ef4444',
+                    green: '#22c55e',
+                    yellow: '#eab308',
+                    blue: '#3b82f6',
+                    magenta: '#a855f7',
+                    cyan: '#06b6d4',
+                    white: '#e2e8f0',
+                    brightBlack: '#64748b',
+                    brightRed: '#f87171',
+                    brightGreen: '#4ade80',
+                    brightYellow: '#facc15',
+                    brightBlue: '#60a5fa',
+                    brightMagenta: '#d8b4fe',
+                    brightCyan: '#67e8f9',
+                    brightWhite: '#ffffff'
+                }
+            });
+
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+
+            if (window.Unicode11Addon) {
+                const unicode11Addon = new Unicode11Addon.Unicode11Addon();
+                term.loadAddon(unicode11Addon);
+                term.unicode.activeVersion = '11';
+            }
+
+            term.open(container);
+            fitAddon.fit();
+
+            // Notify Swift of initial size
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalResize) {
+                window.webkit.messageHandlers.terminalResize.postMessage({
+                    cols: term.cols,
+                    rows: term.rows
+                });
+            }
+
+            // Keystrokes -> Swift
+            term.onData(data => {
+                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalData) {
+                    window.webkit.messageHandlers.terminalData.postMessage(data);
+                }
+            });
+
+            // Resize -> Swift
+            term.onResize(size => {
+                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalResize) {
+                    window.webkit.messageHandlers.terminalResize.postMessage({
+                        cols: size.cols,
+                        rows: size.rows
+                    });
+                }
+            });
+
+            // Window resize handler with debounce
+            let resizeTimeout = null;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    fitAddon.fit();
+                }, 30);
+            });
+
+            // Swift APIs
+            window.writeTerminalData = function(base64) {
+                try {
+                    const binary = atob(base64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                        bytes[i] = binary.charCodeAt(i);
+                    }
+                    term.write(bytes);
+                } catch (e) {
+                    console.error("writeTerminalData error:", e);
+                }
+            };
+
+            window.writeRawString = function(text) {
+                term.write(text);
+            };
+
+            window.fitTerminal = function() {
+                fitAddon.fit();
+            };
+
+            window.focusTerminal = function() {
+                term.focus();
+            };
+
+            window.clearTerminal = function() {
+                term.clear();
+            };
+
+            // Ready notification to Swift
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalReady) {
+                window.webkit.messageHandlers.terminalReady.postMessage(true);
+            }
+        })();
+    </script>
+</body>
+</html>

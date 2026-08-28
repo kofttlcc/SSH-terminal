@@ -17,7 +17,10 @@ let package = Package(
         .executableTarget(
             name: "ITGeekTerminal",
             dependencies: [],
-            path: "Sources/ITGeekTerminal"
+            path: "Sources/ITGeekTerminal",
+            resources: [
+                .copy("Resources/terminal_bundle")
+            ]
         )
     ]
 )

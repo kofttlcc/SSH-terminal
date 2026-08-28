@@ -183,6 +183,11 @@ public class AppState: ObservableObject {
         }
     }
 
+    public func resizeSession(sessionId: String, cols: UInt16, rows: UInt16) {
+        localSessions[sessionId]?.resize(rows: rows, cols: cols)
+        sshSessions[sessionId]?.resize(rows: rows, cols: cols)
+    }
+
     public func sendCommandToTerminal(command: String, sessionId: String? = nil, bypassWarning: Bool = false) {
         guard !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 

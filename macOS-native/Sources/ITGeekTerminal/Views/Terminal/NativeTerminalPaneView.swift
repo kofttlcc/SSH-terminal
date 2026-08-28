@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import WebKit
 
 public struct NativeTerminalPaneView: NSViewRepresentable {
     @ObservedObject var appState: AppState
@@ -14,58 +15,41 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         self.isActive = isActive
     }
 
-    public func makeNSView(context: Context) -> NSScrollView {
+    public func makeNSView(context: Context) -> CustomTerminalWebView {
         let sid = pane.sessionId ?? pane.paneId
 
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-        scrollView.backgroundColor = NSColor(red: 9/255.0, green: 10/255.0, blue: 15/255.0, alpha: 1.0)
+        let config = WKWebViewConfiguration()
+        let contentController = WKUserContentController()
+        contentController.add(context.coordinator, name: "terminalData")
+        contentController.add(context.coordinator, name: "terminalResize")
+        contentController.add(context.coordinator, name: "terminalReady")
+        config.userContentController = contentController
+        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
 
-        let textView = CustomTerminalTextView()
-        textView.appState = appState
-        textView.sessionId = sid
-        textView.tabId = tabId
-        textView.backgroundColor = NSColor(red: 9/255.0, green: 10/255.0, blue: 15/255.0, alpha: 1.0)
-        textView.textColor = NSColor(red: 226/255.0, green: 232/255.0, blue: 240/255.0, alpha: 1.0)
-        textView.font = NSFont.monospacedSystemFont(ofSize: 13.0, weight: .regular)
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.insertionPointColor = NSColor(red: 56/255.0, green: 189/255.0, blue: 248/255.0, alpha: 1.0)
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = true
-        textView.startCursorBlinkTimer()
+        let webView = CustomTerminalWebView(frame: .zero, configuration: config)
+        webView.appState = appState
+        webView.tabId = tabId
+        webView.sessionId = sid
+        webView.navigationDelegate = context.coordinator
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = NSColor(red: 9/255.0, green: 10/255.0, blue: 15/255.0, alpha: 1.0).cgColor
+        webView.setValue(false, forKey: "drawsBackground")
 
-        // Attach or restore persistent NSTextStorage
-        if let existingStorage = appState.terminalStorages[sid] {
-            textView.layoutManager?.replaceTextStorage(existingStorage)
-        } else {
-            let storage = NSTextStorage()
-            appState.terminalStorages[sid] = storage
-            textView.layoutManager?.replaceTextStorage(storage)
-        }
-
-        scrollView.documentView = textView
-        context.coordinator.textView = textView
+        context.coordinator.webView = webView
         context.coordinator.appState = appState
+        context.coordinator.loadTerminalHTML(webView: webView)
 
-        context.coordinator.startSession(appState: appState, pane: pane)
-        return scrollView
+        return webView
     }
 
-    public func updateNSView(_ nsView: NSScrollView, context: Context) {
+    public func updateNSView(_ nsView: CustomTerminalWebView, context: Context) {
         let sid = pane.sessionId ?? pane.paneId
-        if let textView = nsView.documentView as? CustomTerminalTextView {
-            textView.appState = appState
-            textView.sessionId = sid
-            textView.tabId = tabId
+        nsView.appState = appState
+        nsView.sessionId = sid
+        nsView.tabId = tabId
 
-            if let existingStorage = appState.terminalStorages[sid], textView.textStorage !== existingStorage {
-                textView.layoutManager?.replaceTextStorage(existingStorage)
-            }
+        if isActive {
+            nsView.evaluateJavaScript("if (window.fitTerminal) { window.fitTerminal(); window.focusTerminal(); }", completionHandler: nil)
         }
     }
 
@@ -74,28 +58,79 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
     }
 
     @MainActor
-    public class Coordinator: NSObject {
+    public class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var parent: NativeTerminalPaneView
-        weak var textView: CustomTerminalTextView?
+        weak var webView: CustomTerminalWebView?
         weak var appState: AppState?
-        private var emulators: [String: TerminalEmulator] = [:]
+        private var isTerminalReady: Bool = false
+        private var pendingData: [Data] = []
 
         init(_ parent: NativeTerminalPaneView) {
             self.parent = parent
         }
 
+        func loadTerminalHTML(webView: WKWebView) {
+            var htmlURL: URL? = nil
+
+            // 1. Check App Bundle Resources
+            if let bundleURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "terminal_bundle") {
+                htmlURL = bundleURL
+            } else if let resourcePath = Bundle.main.resourcePath {
+                let directPath = URL(fileURLWithPath: resourcePath).appendingPathComponent("terminal_bundle/index.html")
+                if FileManager.default.fileExists(atPath: directPath.path) {
+                    htmlURL = directPath
+                }
+            }
+
+            // 2. Development Fallback Path
+            if htmlURL == nil {
+                let devPath = "/Users/lijt/項目/SSH-terminal/macOS-native/Sources/ITGeekTerminal/Resources/terminal_bundle/index.html"
+                if FileManager.default.fileExists(atPath: devPath) {
+                    htmlURL = URL(fileURLWithPath: devPath)
+                }
+            }
+
+            if let targetURL = htmlURL {
+                let readAccessURL = targetURL.deletingLastPathComponent()
+                webView.loadFileURL(targetURL, allowingReadAccessTo: readAccessURL)
+            } else {
+                print("Error: Could not locate terminal_bundle/index.html")
+            }
+        }
+
+        public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let appState = self.appState, let webView = self.webView else { return }
+            let sid = webView.sessionId
+
+            if message.name == "terminalReady" {
+                self.isTerminalReady = true
+                self.startSession(appState: appState, pane: parent.pane)
+
+                // Flush pending buffered data
+                for data in pendingData {
+                    writeToXterm(data: data)
+                }
+                pendingData.removeAll()
+            } else if message.name == "terminalData" {
+                if let str = message.body as? String, let data = str.data(using: .utf8) {
+                    appState.sendDataToSession(sessionId: sid, data: data)
+                }
+            } else if message.name == "terminalResize" {
+                if let dict = message.body as? [String: Any],
+                   let cols = dict["cols"] as? Int,
+                   let rows = dict["rows"] as? Int {
+                    appState.resizeSession(sessionId: sid, cols: UInt16(cols), rows: UInt16(rows))
+                }
+            }
+        }
+
         func startSession(appState: AppState, pane: TerminalPaneState) {
             let sid = pane.sessionId ?? pane.paneId
 
-            if emulators[sid] == nil {
-                emulators[sid] = TerminalEmulator(cols: 120, rows: 36)
-            }
-
             if pane.isLocal {
-                // If local PTY session is already running, simply re-bind listener!
                 if let existingPty = appState.localSessions[sid] {
                     existingPty.onDataReceived = { [weak self] data in
-                        self?.appendRawData(data, sessionId: sid)
+                        self?.writeToXterm(data: data)
                     }
                     return
                 }
@@ -104,15 +139,14 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 appState.localSessions[sid] = pty
 
                 pty.onDataReceived = { [weak self] data in
-                    self?.appendRawData(data, sessionId: sid)
+                    self?.writeToXterm(data: data)
                 }
 
                 _ = pty.start()
             } else if let host = pane.host {
-                // If SSH session is already running, simply re-bind listener!
                 if let existingSSH = appState.sshSessions[sid] {
                     existingSSH.onDataReceived = { [weak self] data in
-                        self?.appendRawData(data, sessionId: sid)
+                        self?.writeToXterm(data: data)
                     }
                     return
                 }
@@ -140,11 +174,11 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 appState.sshSessions[sid] = ssh
 
                 ssh.onDataReceived = { [weak self] data in
-                    self?.appendRawData(data, sessionId: sid)
+                    self?.writeToXterm(data: data)
                 }
 
                 ssh.onError = { [weak self] err in
-                    self?.appendPlainText("\r\n[SSH 連線錯誤]: \(err)\r\n", sessionId: sid)
+                    self?.writePlainText("\r\n\u{001B}[31m[SSH 連線錯誤]: \(err)\u{001B}[0m\r\n")
                 }
 
                 if isYubiKeyAuth {
@@ -152,7 +186,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     let serial = devs.first?.serial ?? yubiKey?.yubikeySerial ?? "YK-17891328"
                     let keyDisplayName = yubiKey?.name ?? hostKey?.name ?? "YubiKey 5 FIDO2/PIV"
 
-                    self.appendPlainText("[YubiKey 硬體認證]: 正在調用 YubiKey 5 實體硬體金鑰「\(keyDisplayName)」，請觸碰設備金屬環...\r\n", sessionId: sid)
+                    self.writePlainText("\u{001B}[33m[YubiKey 硬體認證]: 正在調用 YubiKey 5 實體硬體金鑰「\(keyDisplayName)」，請觸碰設備金屬環...\u{001B}[0m\r\n")
 
                     appState.yubikeyTouchPrompt = YubiKeyTouchPromptData(
                         hostLabel: host.label,
@@ -162,181 +196,61 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                             _ = ssh.connect()
                         },
                         onCancel: { [weak self] in
-                            self?.appendPlainText("\r\n[YubiKey 認證已取消]: 連線已終止。\r\n", sessionId: sid)
+                            self?.writePlainText("\r\n\u{001B}[31m[YubiKey 認證已取消]: 連線已終止。\u{001B}[0m\r\n")
                             appState.sshSessions.removeValue(forKey: sid)
                         }
                     )
                 } else if needsTouchId {
                     let keyDisplayName = hostKey?.name ?? fallbackKey?.name ?? host.label
-                    self.appendPlainText("[Touch ID 安全驗證]: 正在調用「\(keyDisplayName)」私鑰，請按壓指紋授權...\r\n", sessionId: sid)
+                    self.writePlainText("\u{001B}[35m[Touch ID 安全驗證]: 正在調用「\(keyDisplayName)」私鑰，請按壓指紋授權...\u{001B}[0m\r\n")
                     Task {
                         let res = await BiometricsService.shared.promptTouchID(
                             reason: "調用「\(keyDisplayName)」私鑰認證伺服器「\(host.label)」，請驗證 Touch ID 指紋"
                         )
                         if !res.success {
-                            self.appendPlainText("\r\n[Touch ID 認證未通過]: \(res.error ?? "指紋識別未授權或已取消，連線已終止。")\r\n", sessionId: sid)
+                            self.writePlainText("\r\n\u{001B}[31m[Touch ID 認證未通過]: \(res.error ?? "指紋識別未授權或已取消，連線已終止。")\u{001B}[0m\r\n")
                             appState.sshSessions.removeValue(forKey: sid)
                             return
                         }
-                        self.appendPlainText("[Touch ID 驗證成功]: 指紋授權通過，正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n", sessionId: sid)
+                        self.writePlainText("\u{001B}[32m[Touch ID 驗證成功]: 指紋授權通過，正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\u{001B}[0m\r\n")
                         _ = ssh.connect()
                     }
                 } else {
-                    self.appendPlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n", sessionId: sid)
+                    self.writePlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n")
                     _ = ssh.connect()
                 }
             }
         }
 
-        func appendPlainText(_ text: String, sessionId: String) {
-            if let data = text.data(using: .utf8) {
-                appendRawData(data, sessionId: sessionId)
+        func writeToXterm(data: Data) {
+            guard isTerminalReady else {
+                pendingData.append(data)
+                return
+            }
+
+            let base64 = data.base64EncodedString()
+            DispatchQueue.main.async { [weak self] in
+                self?.webView?.evaluateJavaScript("window.writeTerminalData('\(base64)')", completionHandler: nil)
             }
         }
 
-        func appendRawData(_ data: Data, sessionId: String) {
-            let storage = appState?.terminalStorages[sessionId] ?? textView?.textStorage
-            guard let textStorage = storage else { return }
-
-            if emulators[sessionId] == nil {
-                emulators[sessionId] = TerminalEmulator(cols: 120, rows: 36)
+        func writePlainText(_ text: String) {
+            if let data = text.data(using: .utf8) {
+                writeToXterm(data: data)
             }
-            guard let emulator = emulators[sessionId] else { return }
-
-            emulator.feed(data: data)
-            let render = emulator.render()
-
-            textStorage.setAttributedString(render.attributedString)
-            textView?.terminalCursorCharIndex = render.cursorCharIndex
-            textView?.setSelectedRange(NSRange(location: render.cursorCharIndex, length: 0))
-            textView?.scrollToEndOfDocument(nil)
-            textView?.needsDisplay = true
         }
     }
 }
 
-public class CustomTerminalTextView: NSTextView {
+public class CustomTerminalWebView: WKWebView {
     public weak var appState: AppState?
     public var sessionId: String = ""
     public var tabId: String = ""
-    public var terminalCursorCharIndex: Int = 0
-
-    private var cursorTimer: Timer?
-    private var isCursorVisible: Bool = true
-
-    public override var acceptsFirstResponder: Bool { true }
-
-    public override func resignFirstResponder() -> Bool {
-        cursorTimer?.invalidate()
-        cursorTimer = nil
-        self.needsDisplay = true
-        return true
-    }
-
-    public override func becomeFirstResponder() -> Bool {
-        let ok = super.becomeFirstResponder()
-        if ok {
-            startCursorBlinkTimer()
-            self.needsDisplay = true
-        }
-        return ok
-    }
-
-    public override var shouldDrawInsertionPoint: Bool { true }
-
-    public func startCursorBlinkTimer() {
-        cursorTimer?.invalidate()
-        isCursorVisible = true
-        cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.isCursorVisible.toggle()
-            self.needsDisplay = true
-        }
-    }
-
-    public override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn: Bool) {
-        let isFocused = (self.window?.firstResponder === self)
-        
-        // Exact 1-character cell cursor width (8.0pt) and height (16.0pt)
-        var blockRect = rect
-        blockRect.size.width = 8.0
-        blockRect.size.height = max(rect.height, 16.0)
-
-        let cursorColor = NSColor(red: 56/255.0, green: 189/255.0, blue: 248/255.0, alpha: 0.95)
-
-        if isFocused {
-            if isCursorVisible {
-                cursorColor.setFill()
-                let path = NSBezierPath(roundedRect: blockRect, xRadius: 1, yRadius: 1)
-                path.fill()
-            }
-        } else {
-            // Unfocused hollow outline cursor (standard terminal style)
-            cursorColor.setStroke()
-            let path = NSBezierPath(roundedRect: blockRect, xRadius: 1, yRadius: 1)
-            path.lineWidth = 1.0
-            path.stroke()
-        }
-    }
-
-    public override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        // Draw terminal cursor block at exact character cell position
-        if self.selectedRange().length == 0, let layoutManager = self.layoutManager, let textContainer = self.textContainer {
-            let totalLen = (self.string as NSString).length
-            let charIndex = min(self.terminalCursorCharIndex, totalLen)
-            
-            var cursorRect: NSRect
-            if totalLen == 0 {
-                cursorRect = NSRect(x: 4, y: 4, width: 8.0, height: 16.0)
-            } else if charIndex < totalLen {
-                let glyphIndex = layoutManager.glyphIndexForCharacter(at: charIndex)
-                let charRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
-                cursorRect = NSRect(x: charRect.minX, y: charRect.minY, width: 8.0, height: max(charRect.height, 16.0))
-            } else {
-                let glyphIndex = layoutManager.glyphIndexForCharacter(at: max(0, totalLen - 1))
-                let charRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
-                cursorRect = NSRect(x: charRect.maxX, y: charRect.minY, width: 8.0, height: max(charRect.height, 16.0))
-            }
-
-            drawInsertionPoint(in: cursorRect, color: self.insertionPointColor, turnedOn: isCursorVisible)
-        }
-    }
-
-    public override func mouseDown(with event: NSEvent) {
-        super.mouseDown(with: event)
-        self.window?.makeFirstResponder(self)
-        self.isCursorVisible = true
-        self.needsDisplay = true
-    }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-        // Command + V: Paste directly into terminal session
-        if flags == .command && event.charactersIgnoringModifiers == "v" {
-            paste(nil)
-            return true
-        }
-
-        // Command + C: Copy selected terminal text to clipboard
-        if flags == .command && event.charactersIgnoringModifiers == "c" {
-            if self.selectedRange().length > 0 {
-                copy(nil)
-                appState?.addToast("info", "已複製所選終端文字")
-                return true
-            }
-            return false
-        }
-
-        // Command + A: Select all terminal text
-        if flags == .command && event.charactersIgnoringModifiers == "a" {
-            self.selectAll(nil)
-            return true
-        }
-
-        // Command + K: Toggle AI Agent Bar
+        // Command + K: Toggle AI Agent
         if flags == .command && event.charactersIgnoringModifiers == "k" {
             appState?.inlineAIAgentOpen.toggle()
             return true
@@ -363,187 +277,5 @@ public class CustomTerminalTextView: NSTextView {
         }
 
         return super.performKeyEquivalent(with: event)
-    }
-
-    public override func keyDown(with event: NSEvent) {
-        guard let window = self.window, window.firstResponder === self else {
-            super.keyDown(with: event)
-            return
-        }
-
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-        // If Command key is pressed (and not handled by performKeyEquivalent), let system handle it
-        if flags.contains(.command) {
-            super.keyDown(with: event)
-            return
-        }
-
-        // Handle macOS Special Keys by keyCode
-        switch event.keyCode {
-        case 126: // Up Arrow
-            if flags.contains(.option) {
-                sendString("\u{001B}[1;3A")
-            } else if flags.contains(.control) {
-                sendString("\u{001B}[1;5A")
-            } else {
-                sendString("\u{001B}[A")
-            }
-            return
-        case 125: // Down Arrow
-            if flags.contains(.option) {
-                sendString("\u{001B}[1;3B")
-            } else if flags.contains(.control) {
-                sendString("\u{001B}[1;5B")
-            } else {
-                sendString("\u{001B}[B")
-            }
-            return
-        case 124: // Right Arrow
-            if flags.contains(.option) { // macOS Option+Right (Word forward)
-                sendString("\u{001B}f")
-            } else if flags.contains(.control) {
-                sendString("\u{001B}[1;5C")
-            } else {
-                sendString("\u{001B}[C")
-            }
-            return
-        case 123: // Left Arrow
-            if flags.contains(.option) { // macOS Option+Left (Word backward)
-                sendString("\u{001B}b")
-            } else if flags.contains(.control) {
-                sendString("\u{001B}[1;5D")
-            } else {
-                sendString("\u{001B}[D")
-            }
-            return
-        case 115: // Home
-            sendString("\u{001B}[H")
-            return
-        case 119: // End
-            sendString("\u{001B}[F")
-            return
-        case 116: // Page Up
-            sendString("\u{001B}[5~")
-            return
-        case 121: // Page Down
-            sendString("\u{001B}[6~")
-            return
-        case 117: // Forward Delete (fn + delete)
-            sendString("\u{001B}[3~")
-            return
-        case 51: // Backspace (Delete key on macOS)
-            if flags.contains(.option) {
-                sendString("\u{0017}") // Ctrl+W (delete word backward)
-            } else {
-                sendString("\u{007F}")
-            }
-            return
-        case 36, 76: // Enter / Return / Keypad Enter
-            sendString("\r")
-            return
-        case 48: // Tab (Shell Autocompletion)
-            if flags.contains(.shift) {
-                sendString("\u{001B}[Z")
-            } else {
-                sendString("\t")
-            }
-            return
-        case 53: // Escape
-            sendString("\u{001B}")
-            return
-        default:
-            break
-        }
-
-        // Handle Control + Character Key Combinations
-        if flags.contains(.control), let unmod = event.charactersIgnoringModifiers?.lowercased().first {
-            if let ascii = unmod.asciiValue, ascii >= 97 && ascii <= 122 { // 'a'...'z'
-                let ctrlCode = UInt8(ascii - 96) // 1 for 'a', 3 for 'c' (SIGINT), 4 for 'd' (EOF), 26 for 'z' (SIGTSTP)
-                let data = Data([ctrlCode])
-                appState?.sendDataToSession(sessionId: sessionId, data: data)
-                return
-            }
-        }
-
-        // Normal Characters (including UTF-8 input, numbers, symbols)
-        if let chars = event.characters, !chars.isEmpty {
-            if let data = chars.data(using: .utf8) {
-                appState?.sendDataToSession(sessionId: sessionId, data: data)
-            }
-        }
-    }
-
-    private func sendString(_ str: String) {
-        if let data = str.data(using: .utf8) {
-            appState?.sendDataToSession(sessionId: sessionId, data: data)
-        }
-    }
-
-    public override func paste(_ sender: Any?) {
-        if let text = NSPasteboard.general.string(forType: .string) {
-            if let data = text.data(using: .utf8) {
-                appState?.sendDataToSession(sessionId: sessionId, data: data)
-            }
-        }
-    }
-
-    public override func copy(_ sender: Any?) {
-        let range = self.selectedRange()
-        if range.length > 0 {
-            let selectedText = (self.string as NSString).substring(with: range)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(selectedText, forType: .string)
-        }
-    }
-
-    public override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = NSMenu(title: "TerminalContext")
-
-        let copyItem = NSMenuItem(title: "複製 (Copy)", action: #selector(contextCopy), keyEquivalent: "c")
-        copyItem.target = self
-        copyItem.isEnabled = self.selectedRange().length > 0
-        menu.addItem(copyItem)
-
-        let pasteItem = NSMenuItem(title: "貼上 (Paste)", action: #selector(contextPaste), keyEquivalent: "v")
-        pasteItem.target = self
-        menu.addItem(pasteItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let clearItem = NSMenuItem(title: "清空螢幕 (Clear)", action: #selector(contextClear), keyEquivalent: "k")
-        clearItem.target = self
-        menu.addItem(clearItem)
-
-        let aiItem = NSMenuItem(title: "呼叫 AI 智能體 (Cmd+K)", action: #selector(contextToggleAI), keyEquivalent: "k")
-        aiItem.target = self
-        menu.addItem(aiItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let selectAllItem = NSMenuItem(title: "選擇全部 (Select All)", action: #selector(selectAll(_:)), keyEquivalent: "a")
-        selectAllItem.target = self
-        menu.addItem(selectAllItem)
-
-        return menu
-    }
-
-    @objc private func contextCopy() {
-        copy(nil)
-    }
-
-    @objc private func contextPaste() {
-        paste(nil)
-    }
-
-    @objc private func contextClear() {
-        if let storage = appState?.terminalStorages[sessionId] {
-            storage.setAttributedString(NSAttributedString(string: ""))
-        }
-        sendString("\u{000C}") // Send Ctrl+L to remote shell
-    }
-
-    @objc private func contextToggleAI() {
-        appState?.inlineAIAgentOpen.toggle()
     }
 }

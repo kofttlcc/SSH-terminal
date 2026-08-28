@@ -24,11 +24,11 @@ public struct MainView: View {
 
                     // Content Switcher with persistent Terminal Container
                     ZStack {
-                        // Persistently mounted Terminal Container
-                        if let activeTab = appState.tabs.first(where: { $0.id == appState.activeTabId }) {
-                            TerminalContainerView(appState: appState, tab: activeTab)
-                                .opacity(appState.activeView == "terminal" ? 1 : 0)
-                                .allowsHitTesting(appState.activeView == "terminal")
+                        // Persistently mounted Terminal Containers for each tab
+                        ForEach(appState.tabs) { tab in
+                            TerminalContainerView(appState: appState, tab: tab)
+                                .opacity((appState.activeView == "terminal" && appState.activeTabId == tab.id) ? 1 : 0)
+                                .allowsHitTesting(appState.activeView == "terminal" && appState.activeTabId == tab.id)
                         }
 
                         // Other Views
