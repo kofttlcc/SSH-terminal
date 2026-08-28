@@ -75,6 +75,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         var parent: NativeTerminalPaneView
         weak var textView: CustomTerminalTextView?
         weak var appState: AppState?
+        private var decoders: [String: Utf8StreamDecoder] = [:]
 
         init(_ parent: NativeTerminalPaneView) {
             self.parent = parent
@@ -184,20 +185,26 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
             let storage = appState?.terminalStorages[sessionId] ?? textView?.textStorage
             guard let textStorage = storage else { return }
 
-            if let string = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) {
-                let clean = cleanAnsi(string)
-                guard !clean.isEmpty else { return }
-
-                let attr = NSAttributedString(
-                    string: clean,
-                    attributes: [
-                        .font: NSFont.monospacedSystemFont(ofSize: 13.0, weight: .regular),
-                        .foregroundColor: NSColor(red: 226/255.0, green: 232/255.0, blue: 240/255.0, alpha: 1.0)
-                    ]
-                )
-                textStorage.append(attr)
-                textView?.scrollToEndOfDocument(nil)
+            if decoders[sessionId] == nil {
+                decoders[sessionId] = Utf8StreamDecoder()
             }
+            guard let decoder = decoders[sessionId] else { return }
+
+            let decodedString = decoder.decode(data)
+            guard !decodedString.isEmpty else { return }
+
+            let clean = cleanAnsi(decodedString)
+            guard !clean.isEmpty else { return }
+
+            let attr = NSAttributedString(
+                string: clean,
+                attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 13.0, weight: .regular),
+                    .foregroundColor: NSColor(red: 226/255.0, green: 232/255.0, blue: 240/255.0, alpha: 1.0)
+                ]
+            )
+            textStorage.append(attr)
+            textView?.scrollToEndOfDocument(nil)
         }
 
         private func cleanAnsi(_ text: String) -> String {
@@ -214,13 +221,52 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
             // 4. Standalone escape or control characters (\x00-\x08, \x0B, \x0C, \x0E-\x1F except \t, \n, \r)
             str = str.replacingOccurrences(of: "[\u{0000}-\u{0008}\u{000B}\u{000C}\u{000E}-\u{001F}\u{007F}]", with: "", options: .regularExpression)
             
-            // 5. In case escape character was split across packets: strip leftover dangling ?2004h/l or ]0;...
-            str = str.replacingOccurrences(of: "\\[\\?[0-9]+[hl]", with: "", options: .regularExpression)
-            str = str.replacingOccurrences(of: "\\?[0-9]{3,5}[hl]", with: "", options: .regularExpression)
-            str = str.replacingOccurrences(of: "\\]0;[^\r\n\u{0007}]*[\u{0007}]?", with: "", options: .regularExpression)
-            
             return str
         }
+    }
+}
+
+public class Utf8StreamDecoder {
+    private var buffer = Data()
+
+    public init() {}
+
+    public func decode(_ data: Data) -> String {
+        buffer.append(data)
+        
+        var validLen = buffer.count
+        while validLen > 0 {
+            let lastByte = buffer[validLen - 1]
+            if (lastByte & 0x80) == 0 {
+                break
+            }
+            var leadIdx = validLen - 1
+            while leadIdx >= 0 && (buffer[leadIdx] & 0xC0) == 0x80 {
+                leadIdx -= 1
+            }
+            if leadIdx >= 0 {
+                let leadByte = buffer[leadIdx]
+                let expectedLen: Int
+                if (leadByte & 0xE0) == 0xC0 { expectedLen = 2 }
+                else if (leadByte & 0xF0) == 0xE0 { expectedLen = 3 }
+                else if (leadByte & 0xF8) == 0xF0 { expectedLen = 4 }
+                else { expectedLen = 1 }
+
+                let available = buffer.count - leadIdx
+                if available < expectedLen {
+                    validLen = leadIdx
+                }
+            }
+            break
+        }
+
+        if validLen == 0 {
+            return ""
+        }
+
+        let readyData = buffer.subdata(in: 0..<validLen)
+        buffer.removeSubrange(0..<validLen)
+        return String(decoding: readyData, as: UTF8.self)
     }
 }
 
