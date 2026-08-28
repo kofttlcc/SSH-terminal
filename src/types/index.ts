@@ -243,6 +243,7 @@ export type AIProvider =
   | 'openai' 
   | 'anthropic' 
   | 'gemini' 
+  | 'google'
   | 'qwen' 
   | 'moonshot' 
   | 'zhipu' 

@@ -59,38 +59,60 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const themeConfig = TERMINAL_THEMES[settings.theme] || TERMINAL_THEMES.termius;
+    const themeConfig = TERMINAL_THEMES[settings.theme] || TERMINAL_THEMES.termius || {
+      background: '#090a0f',
+      foreground: '#e2e8f0',
+      cursor: '#38bdf8',
+      cursorAccent: '#090a0f',
+      selectionBackground: '#3b82f640',
+      black: '#1e293b',
+      red: '#f43f5e',
+      green: '#10b981',
+      yellow: '#f59e0b',
+      blue: '#3b82f6',
+      magenta: '#d946ef',
+      cyan: '#06b6d4',
+      white: '#f8fafc',
+      brightBlack: '#475569',
+      brightRed: '#fb7185',
+      brightGreen: '#34d399',
+      brightYellow: '#fbbf24',
+      brightBlue: '#60a5fa',
+      brightMagenta: '#e879f9',
+      brightCyan: '#22d3ee',
+      brightWhite: '#ffffff'
+    };
 
     const term = new Terminal({
-      cursorBlink: settings.cursorBlink,
-      cursorStyle: settings.cursorStyle,
-      fontFamily: settings.fontFamily,
-      fontSize: settings.fontSize,
-      lineHeight: settings.lineHeight,
-      letterSpacing: settings.letterSpacing,
-      scrollback: settings.scrollback,
+      cursorBlink: settings.cursorBlink ?? true,
+      cursorStyle: settings.cursorStyle || 'block',
+      fontFamily: settings.fontFamily || 'JetBrains Mono, Menlo, Monaco, monospace',
+      fontSize: settings.fontSize || 13,
+      lineHeight: settings.lineHeight || 1.2,
+      letterSpacing: settings.letterSpacing || 0,
+      scrollback: settings.scrollback || 5000,
       theme: {
-        background: themeConfig.background,
-        foreground: themeConfig.foreground,
-        cursor: themeConfig.cursor,
-        cursorAccent: themeConfig.cursorAccent,
-        selectionBackground: themeConfig.selectionBackground,
-        black: themeConfig.black,
-        red: themeConfig.red,
-        green: themeConfig.green,
-        yellow: themeConfig.yellow,
-        blue: themeConfig.blue,
-        magenta: themeConfig.magenta,
-        cyan: themeConfig.cyan,
-        white: themeConfig.white,
-        brightBlack: themeConfig.brightBlack,
-        brightRed: themeConfig.brightRed,
-        brightGreen: themeConfig.brightGreen,
-        brightYellow: themeConfig.brightYellow,
-        brightBlue: themeConfig.brightBlue,
-        brightMagenta: themeConfig.brightMagenta,
-        brightCyan: themeConfig.brightCyan,
-        brightWhite: themeConfig.brightWhite,
+        background: themeConfig.background || '#090a0f',
+        foreground: themeConfig.foreground || '#e2e8f0',
+        cursor: themeConfig.cursor || '#38bdf8',
+        cursorAccent: themeConfig.cursorAccent || '#090a0f',
+        selectionBackground: themeConfig.selectionBackground || '#3b82f640',
+        black: themeConfig.black || '#1e293b',
+        red: themeConfig.red || '#f43f5e',
+        green: themeConfig.green || '#10b981',
+        yellow: themeConfig.yellow || '#f59e0b',
+        blue: themeConfig.blue || '#3b82f6',
+        magenta: themeConfig.magenta || '#d946ef',
+        cyan: themeConfig.cyan || '#06b6d4',
+        white: themeConfig.white || '#f8fafc',
+        brightBlack: themeConfig.brightBlack || '#475569',
+        brightRed: themeConfig.brightRed || '#fb7185',
+        brightGreen: themeConfig.brightGreen || '#34d399',
+        brightYellow: themeConfig.brightYellow || '#fbbf24',
+        brightBlue: themeConfig.brightBlue || '#60a5fa',
+        brightMagenta: themeConfig.brightMagenta || '#e879f9',
+        brightCyan: themeConfig.brightCyan || '#22d3ee',
+        brightWhite: themeConfig.brightWhite || '#ffffff'
       },
       allowTransparency: true
     });
@@ -103,12 +125,14 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
     term.open(containerRef.current);
 
-    // Try canvas addon for fast rendering
-    try {
-      const canvasAddon = new CanvasAddon();
-      term.loadAddon(canvasAddon);
-    } catch {
-      // fallback to dom
+    // If canvas renderer is selected, try loading it safely with DOM fallback
+    if (settings.renderMode === 'canvas') {
+      try {
+        const canvasAddon = new CanvasAddon();
+        term.loadAddon(canvasAddon);
+      } catch (e) {
+        console.warn('CanvasAddon load failed, using native DOM renderer:', e);
+      }
     }
 
     terminalRef.current = term;
@@ -121,7 +145,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     }, 100);
 
     const sessionId = pane.sessionId || 'session-' + Date.now() + '-' + Math.random().toString(36).substring(2, 5);
-    updatePaneState(pane.paneId, { sessionId });
+    if (!pane.sessionId) {
+      updatePaneState(pane.paneId, { sessionId });
+    }
 
     // Handle connection
     startConnection(sessionId, term);

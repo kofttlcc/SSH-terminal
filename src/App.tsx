@@ -13,6 +13,7 @@ import { SnippetListView } from './components/snippets/SnippetListView';
 import { TunnelListView } from './components/tunnels/TunnelListView';
 import { KeyListView } from './components/keys/KeyListView';
 import { SettingsView } from './components/settings/SettingsView';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useVaultStore } from './stores/useVaultStore';
 import { useTerminalStore } from './stores/useTerminalStore';
 import { useAppStore } from './stores/useAppStore';
@@ -50,55 +51,57 @@ export const App: React.FC = () => {
 
         {/* Dynamic Views Container */}
         <main className="flex-1 relative overflow-hidden bg-background">
-          {/* Persistent Terminal Container (Keep-Alive: prevents session loss upon navigation) */}
-          <div className={`h-full w-full ${activeView === 'terminal' ? 'block' : 'hidden'}`}>
-            {terminalTabs.length > 0 ? (
-              terminalTabs.map((tab) => (
-                <div 
-                  key={tab.id}
-                  className={`h-full w-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
-                >
-                  <TerminalContainer tab={tab} />
-                </div>
-              ))
-            ) : (
-              /* Empty Terminal State */
-              <div className="h-full w-full flex flex-col items-center justify-center text-center p-8 select-none">
-                <div className="w-16 h-16 rounded-3xl bg-card border border-border/80 flex items-center justify-center text-blue-400 mb-4 shadow-glow">
-                  <Terminal className="w-8 h-8 text-termiusCyan" />
-                </div>
-                <h2 className="text-lg font-bold text-slate-100">當前無活躍中的終端會話</h2>
-                <p className="text-xs text-mutedDark max-w-sm mt-1.5 leading-relaxed">
-                  請從主機清單連線遠端伺服器，或發起快速直連與本機 Shell 會話開始工作。
-                </p>
-
-                <div className="flex items-center gap-3 mt-6">
-                  <button
-                    onClick={() => setActiveView('hosts')}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card hover:bg-cardHover border border-border text-xs font-semibold text-slate-200 transition-all shadow-sm"
+          <ErrorBoundary fallbackTitle="終端與主機畫面載入異常">
+            {/* Persistent Terminal Container (Keep-Alive: prevents session loss upon navigation) */}
+            <div className={`h-full w-full ${activeView === 'terminal' ? 'block' : 'hidden'}`}>
+              {terminalTabs.length > 0 ? (
+                terminalTabs.map((tab) => (
+                  <div 
+                    key={tab.id}
+                    className={`h-full w-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
                   >
-                    <Server className="w-3.5 h-3.5 text-blue-400" />
-                    <span>檢視主機清單</span>
-                  </button>
+                    <TerminalContainer tab={tab} />
+                  </div>
+                ))
+              ) : (
+                /* Empty Terminal State */
+                <div className="h-full w-full flex flex-col items-center justify-center text-center p-8 select-none">
+                  <div className="w-16 h-16 rounded-3xl bg-card border border-border/80 flex items-center justify-center text-blue-400 mb-4 shadow-glow">
+                    <Terminal className="w-8 h-8 text-termiusCyan" />
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-100">當前無活躍中的終端會話</h2>
+                  <p className="text-xs text-mutedDark max-w-sm mt-1.5 leading-relaxed">
+                    請從主機清單連線遠端伺服器，或發起快速直連與本機 Shell 會話開始工作。
+                  </p>
 
-                  <button
-                    onClick={openLocalTerminal}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-semibold transition-all shadow-sm active:scale-95"
-                  >
-                    <Terminal className="w-3.5 h-3.5" />
-                    <span>啟動本機 Shell</span>
-                  </button>
+                  <div className="flex items-center gap-3 mt-6">
+                    <button
+                      onClick={() => setActiveView('hosts')}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card hover:bg-cardHover border border-border text-xs font-semibold text-slate-200 transition-all shadow-sm"
+                    >
+                      <Server className="w-3.5 h-3.5 text-blue-400" />
+                      <span>檢視主機清單</span>
+                    </button>
+
+                    <button
+                      onClick={openLocalTerminal}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-semibold transition-all shadow-sm active:scale-95"
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>啟動本機 Shell</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          {activeView === 'hosts' && <HostListView />}
-          {activeView === 'sftp' && <SftpView />}
-          {activeView === 'snippets' && <SnippetListView />}
-          {activeView === 'tunnels' && <TunnelListView />}
-          {activeView === 'keys' && <KeyListView />}
-          {activeView === 'settings' && <SettingsView />}
+            {activeView === 'hosts' && <HostListView />}
+            {activeView === 'sftp' && <SftpView />}
+            {activeView === 'snippets' && <SnippetListView />}
+            {activeView === 'tunnels' && <TunnelListView />}
+            {activeView === 'keys' && <KeyListView />}
+            {activeView === 'settings' && <SettingsView />}
+          </ErrorBoundary>
         </main>
 
         {/* Bottom Status Bar */}

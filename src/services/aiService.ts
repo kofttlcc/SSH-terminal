@@ -53,6 +53,18 @@ export const PROVIDER_PRESETS: Record<string, {
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (穩定版)', description: '穩定版高效模型' }
     ]
   },
+  google: {
+    name: 'Google Gemini',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    models: [
+      { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash (2026 旗艦主力)', description: 'Google 最新軟體工程與 Agent 旗艦主力模型，代碼精確度最高' },
+      { id: 'gemini-3.5-pro', name: 'Gemini 3.5 Pro (深度推理旗艦)', description: '100 萬 Token 超大上下文，解決超難度系統故障與跨日誌排查', reasoning: true },
+      { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash (持續任務主力)', description: '100 萬 Token 長上下文高效主力' },
+      { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite (超極速)', description: '極低延遲高吞吐模型' },
+      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (穩定版)', description: '穩定版百萬上下文推理模型', reasoning: true },
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (穩定版)', description: '穩定版高效模型' }
+    ]
+  },
   qwen: {
     name: 'Qwen (阿里通義千問 / 百煉)',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -279,7 +291,7 @@ export class AIService {
 
     if (provider === 'anthropic') {
       return this.streamAnthropic(config, systemPrompt, messages, onChunk, signal);
-    } else if (provider === 'gemini') {
+    } else if (provider === 'gemini' || provider === 'google') {
       return this.streamGemini(config, systemPrompt, messages, onChunk, signal);
     } else {
       // OpenAI, DeepSeek, Ollama, Custom (OpenAI-compatible)
