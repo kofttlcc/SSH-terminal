@@ -11,6 +11,7 @@
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",
     "dist:all": "npm run build && electron-builder -mw",
+    "build:native": "bash ./build-native.sh",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },

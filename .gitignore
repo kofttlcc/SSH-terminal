@@ -9,6 +9,9 @@ pnpm-debug.log*
 dist/
 dist-electron/
 release/
+release-native/
+.build/
+macOS-native/.build/
 
 # Operating System & IDE
 .DS_Store
