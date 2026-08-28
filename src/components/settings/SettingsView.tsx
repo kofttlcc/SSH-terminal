@@ -285,8 +285,11 @@ export const SettingsView: React.FC = () => {
 
           {/* Provider Selection Tabs */}
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-slate-300">選擇 AI 模型服務商 (Provider)</label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-medium text-slate-300">選擇 AI 模型服務商 (Provider)</label>
+              <span className="text-[10px] text-mutedDark font-mono">支援 11+ 家主流雲端與本地端點</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
               {(Object.keys(PROVIDER_PRESETS) as AIProvider[]).map((provKey) => {
                 const prov = PROVIDER_PRESETS[provKey];
                 const isSelected = aiConfig.provider === provKey;
@@ -304,13 +307,13 @@ export const SettingsView: React.FC = () => {
                     }}
                     className={`p-2.5 rounded-xl border text-left transition-all ${
                       isSelected
-                        ? 'bg-purple-500/20 border-purple-500 text-purple-200 shadow-sm shadow-purple-500/20 font-semibold'
-                        : 'bg-background border-border/60 hover:border-border text-slate-400 hover:text-slate-200'
+                        ? 'bg-purple-500/20 border-purple-500 text-purple-200 shadow-sm shadow-purple-500/20 font-semibold ring-1 ring-purple-500/30'
+                        : 'bg-background border-border/60 hover:border-border text-slate-400 hover:text-slate-200 hover:bg-cardHover'
                     }`}
                   >
-                    <div className="text-xs truncate">{prov.name.split(' ')[0]}</div>
+                    <div className="text-xs truncate font-medium">{prov.name.split(' ')[0]}</div>
                     <div className="text-[10px] text-mutedDark font-mono mt-0.5 truncate">
-                      {provKey === 'ollama' ? 'Local' : provKey === 'custom' ? 'Custom' : 'Cloud'}
+                      {provKey === 'ollama' ? 'Local' : provKey === 'custom' ? 'Custom' : 'Cloud API'}
                     </div>
                   </button>
                 );
@@ -320,18 +323,18 @@ export const SettingsView: React.FC = () => {
 
           {/* API Key & Endpoint Configuration */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* API Key (not required for Ollama) */}
+            {/* API Key */}
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
                 API 密鑰 (API Key)
-                {aiConfig.provider === 'ollama' && <span className="text-mutedDark ml-1">(本地 Ollama 通常不需 Key)</span>}
+                {aiConfig.provider === 'ollama' && <span className="text-mutedDark ml-1">(本地 Ollama 預設免 Key)</span>}
               </label>
               <div className="relative">
                 <input
                   type={showApiKey ? 'text' : 'password'}
                   value={aiConfig.apiKey || ''}
                   onChange={(e) => handleUpdateAIConfig({ apiKey: e.target.value })}
-                  placeholder={aiConfig.provider === 'ollama' ? '可留空 (預設免認證)' : 'sk-********************************'}
+                  placeholder={aiConfig.provider === 'ollama' ? '可留空 (本地免認證)' : 'sk-********************************'}
                   className="w-full pl-3 pr-10 py-2 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 placeholder-mutedDark focus:outline-none font-mono transition-colors"
                 />
                 <button
@@ -361,30 +364,39 @@ export const SettingsView: React.FC = () => {
 
           {/* Model Selector & Parameters */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Model Name */}
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">模型代號 (Model)</label>
-              {PROVIDER_PRESETS[aiConfig.provider]?.models.length > 0 && aiConfig.provider !== 'custom' ? (
+            {/* Model Name with Preset Select + Custom Input */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-slate-300">
+                模型名稱 (Model ID)
+              </label>
+              
+              {PROVIDER_PRESETS[aiConfig.provider]?.models.length > 0 && (
                 <select
-                  value={aiConfig.model}
-                  onChange={(e) => handleUpdateAIConfig({ model: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 focus:outline-none font-mono"
+                  value={PROVIDER_PRESETS[aiConfig.provider].models.some((m) => m.id === aiConfig.model) ? aiConfig.model : '__custom__'}
+                  onChange={(e) => {
+                    if (e.target.value !== '__custom__') {
+                      handleUpdateAIConfig({ model: e.target.value });
+                    }
+                  }}
+                  className="w-full px-3 py-1.5 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 focus:outline-none font-mono"
                 >
                   {PROVIDER_PRESETS[aiConfig.provider].models.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name} ({m.id})
                     </option>
                   ))}
+                  <option value="__custom__">⚙️ 自訂其他模型名稱...</option>
                 </select>
-              ) : (
-                <input
-                  type="text"
-                  value={aiConfig.model}
-                  onChange={(e) => handleUpdateAIConfig({ model: e.target.value })}
-                  placeholder="請輸入模型代號 (例: deepseek-chat, gpt-4o)"
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 focus:outline-none font-mono"
-                />
               )}
+
+              {/* Editable input allows typing any specific model version/ID */}
+              <input
+                type="text"
+                value={aiConfig.model}
+                onChange={(e) => handleUpdateAIConfig({ model: e.target.value })}
+                placeholder="或手動輸入模型名稱 (例: gpt-4.5-preview, claude-3-7-sonnet)"
+                className="w-full px-3 py-1.5 rounded-xl bg-background border border-border/70 focus:border-purple-500 text-xs text-slate-200 placeholder-mutedDark focus:outline-none font-mono"
+              />
             </div>
 
             {/* Temperature Slider */}

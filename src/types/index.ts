@@ -238,7 +238,18 @@ export interface TerminalSettings {
   aiConfig?: AIModelConfig;
 }
 
-export type AIProvider = 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'ollama' | 'custom';
+export type AIProvider = 
+  | 'deepseek' 
+  | 'openai' 
+  | 'anthropic' 
+  | 'gemini' 
+  | 'qwen' 
+  | 'moonshot' 
+  | 'zhipu' 
+  | 'siliconflow' 
+  | 'groq' 
+  | 'ollama' 
+  | 'custom';
 
 export interface AIModelConfig {
   provider: AIProvider;

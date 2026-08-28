@@ -9,54 +9,119 @@ export const PROVIDER_PRESETS: Record<string, {
     name: 'DeepSeek (深度求索)',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
     models: [
-      { id: 'deepseek-chat', name: 'DeepSeek-V3', description: '高速強大的通用語言模型，適合日常運維指令' },
-      { id: 'deepseek-reasoner', name: 'DeepSeek-R1 (深度思考)', description: '具備強大推理與思考鏈，適合複雜架構與疑難雜症除錯', reasoning: true }
+      { id: 'deepseek-chat', name: 'DeepSeek-V3 (通用主力)', description: '高速強大的旗艦通用大模型，代碼與運維指令生成極其精準' },
+      { id: 'deepseek-reasoner', name: 'DeepSeek-R1 (深度思考)', description: '滿血推理大模型，具備完整思維鏈，適合複雜架構分析與疑難雜症除錯', reasoning: true }
     ]
   },
   openai: {
     name: 'OpenAI',
     defaultBaseUrl: 'https://api.openai.com/v1',
     models: [
-      { id: 'gpt-4o', name: 'GPT-4o', description: '旗艦級多模態智慧模型，指令解析精準' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o-mini', description: '超輕量極速模型，低延遲' },
-      { id: 'o3-mini', name: 'o3-mini (推理模型)', description: '強大的程式碼與系統運維深度推理能力', reasoning: true },
-      { id: 'o1', name: 'o1', description: '高階深度推理思考模型', reasoning: true }
+      { id: 'gpt-4.5-preview', name: 'GPT-4.5 Preview', description: 'OpenAI 2025 旗艦模型，具備前所未有的廣泛知識與直覺模式' },
+      { id: 'gpt-4o', name: 'GPT-4o (旗艦全能)', description: '旗艦級多模態智慧模型，文字理解與指令輸出穩定精確' },
+      { id: 'gpt-4o-mini', name: 'GPT-4o-mini (極速輕量)', description: '超輕量低延遲模型，適合日常快速命令查詢與轉換' },
+      { id: 'o3-mini', name: 'o3-mini (頂尖推理)', description: '專注於編程與系統工程的頂尖深度推理模型', reasoning: true },
+      { id: 'o1', name: 'o1 (深度推理旗艦)', description: 'OpenAI 旗艦深度思考模型，解決複雜架構邏輯', reasoning: true },
+      { id: 'o1-mini', name: 'o1-mini (輕量推理)', description: '輕量級推理模型，快速生成高難度腳本', reasoning: true },
+      { id: 'chatgpt-4o-latest', name: 'ChatGPT-4o Latest', description: 'ChatGPT 線上動態更新最新版本' }
     ]
   },
   anthropic: {
     name: 'Anthropic Claude',
     defaultBaseUrl: 'https://api.anthropic.com/v1',
     models: [
-      { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet', description: '最新旗艦模型，支援混合推理思考', reasoning: true },
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: '高階程式碼與系統管理助理' },
-      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: '極速輕巧的輔助模型' }
+      { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (旗艦混合推理)', description: '2025 最新旗艦模型，支援可調控混合思維鏈，代碼與架構極致水準', reasoning: true },
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet v2', description: '行業標竿級程式碼與系統管理助理' },
+      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: '極速輕巧的即時響應模型' },
+      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', description: '超強長文本與複雜系統邏輯深度分析' }
     ]
   },
   gemini: {
     name: 'Google Gemini',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     models: [
-      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: '新一代極速多模態模型' },
-      { id: 'gemini-2.0-flash-thinking-exp-01-21', name: 'Gemini 2.0 Flash Thinking', description: '具備可視化思考鏈的推理模型', reasoning: true },
-      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: '超長上下文複雜推理模型' },
-      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: '高效平衡模型' }
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (正式版)', description: '新一代極速多模態主力模型，輸出速度極快' },
+      { id: 'gemini-2.0-flash-thinking-exp-01-21', name: 'Gemini 2.0 Flash Thinking', description: '具備可視化思考過程的深度推理模型', reasoning: true },
+      { id: 'gemini-2.0-pro-exp-02-05', name: 'Gemini 2.0 Pro Exp', description: 'Google 最強推理能力實驗模型', reasoning: true },
+      { id: 'gemini-2.0-flash-lite-preview-02-05', name: 'Gemini 2.0 Flash-Lite', description: '極致低延遲超輕量模型' },
+      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: '200 萬超長上下文，適合整份日誌或全量配置分析' },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: '高性價比平衡模型' }
+    ]
+  },
+  qwen: {
+    name: 'Qwen (阿里通義千問 / 百煉)',
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: [
+      { id: 'qwen-max', name: 'Qwen-Max (通義旗艦)', description: '千億級參數超大規模旗艦模型，全面超越常規開源' },
+      { id: 'qwen-plus', name: 'Qwen-Plus (高性價比)', description: '各項能力均衡，兼顧極速響應與高智能' },
+      { id: 'qwen-turbo', name: 'Qwen-Turbo (極速版)', description: '低延遲超高吞吐，快速處理日常終端指令' },
+      { id: 'qwen2.5-coder-32b-instruct', name: 'Qwen2.5-Coder-32B', description: '全球領先的開源代碼大模型，精通各類 Linux 指令與腳本編寫' },
+      { id: 'qwen-coder-plus', name: 'Qwen-Coder-Plus (代碼加強版)', description: '針對編程與 DevOps 運維特化訓練的頂級代碼模型' },
+      { id: 'qwq-32b', name: 'QwQ-32B (深度思考)', description: '通義千問推理大模型，具備長思維鏈深度分析能力', reasoning: true }
+    ]
+  },
+  siliconflow: {
+    name: 'SiliconFlow (硅基流動)',
+    defaultBaseUrl: 'https://api.siliconflow.cn/v1',
+    models: [
+      { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3 (硅基託管)', description: '全速託管的高並發 DeepSeek-V3 主力模型' },
+      { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek-R1 (滿血推理版)', description: '滿血版 671B DeepSeek-R1 深度思考模型', reasoning: true },
+      { id: 'Qwen/Qwen2.5-Coder-32B-Instruct', name: 'Qwen2.5-Coder-32B (硅基)', description: '開源最強代碼與運維指令生成模型' },
+      { id: 'Qwen/QwQ-32B', name: 'QwQ-32B (推理旗艦)', description: '開源最強推理思考模型之一', reasoning: true },
+      { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama-3.3-70B (硅基)', description: 'Meta 最新旗艦開源模型' }
+    ]
+  },
+  moonshot: {
+    name: 'Moonshot AI (月之暗面 / Kimi)',
+    defaultBaseUrl: 'https://api.moonshot.cn/v1',
+    models: [
+      { id: 'moonshot-v1-128k', name: 'Moonshot V1 (128k)', description: 'Kimi 超長上下文模型，適合超大日誌與複雜配置文件分析' },
+      { id: 'moonshot-v1-32k', name: 'Moonshot V1 (32k)', description: '平衡型長上下文大模型' },
+      { id: 'moonshot-v1-8k', name: 'Moonshot V1 (8k)', description: '快速日常命令交互與代碼分析' }
+    ]
+  },
+  zhipu: {
+    name: 'Zhipu AI (智譜清言 GLM)',
+    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    models: [
+      { id: 'glm-4-plus', name: 'GLM-4 Plus (旗艦版)', description: '智譜最新旗艦通用模型，中文理解與系統指令精準' },
+      { id: 'glm-4-air', name: 'GLM-4 Air (高效版)', description: '高性價比高性能大模型' },
+      { id: 'glm-4-flash', name: 'GLM-4 Flash (極速版)', description: '極速超低延遲模型' },
+      { id: 'glm-zero-preview', name: 'GLM-Zero (推理模型)', description: '智譜自研深度推理思考模型', reasoning: true }
+    ]
+  },
+  groq: {
+    name: 'Groq (LPU 毫秒級極速推理)',
+    defaultBaseUrl: 'https://api.groq.com/openai/v1',
+    models: [
+      { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek-R1 Distill Llama 70B', description: 'Groq LPU 加速的 DeepSeek-R1 蒸餾模型，超高速輸出思考鏈', reasoning: true },
+      { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', description: 'Meta 旗艦模型，數百 Token/秒的極致吞吐' },
+      { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', description: '毫秒級極速響應輕量模型' },
+      { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B (32k)', description: 'MoE 架構高速模型' }
     ]
   },
   ollama: {
-    name: 'Ollama (本地私有化模型)',
+    name: 'Ollama (本地私有化大模型)',
     defaultBaseUrl: 'http://localhost:11434/v1',
     models: [
-      { id: 'deepseek-r1:latest', name: 'DeepSeek-R1 (Local)', description: '本地部署的 DeepSeek-R1 推理模型', reasoning: true },
-      { id: 'qwen2.5-coder:latest', name: 'Qwen 2.5 Coder', description: '專注於程式碼與 Shell 指令的開源模型' },
-      { id: 'llama3.3:latest', name: 'Llama 3.3', description: 'Meta 開源大模型' },
-      { id: 'mistral:latest', name: 'Mistral', description: '靈活輕巧的本地開源模型' }
+      { id: 'deepseek-r1:latest', name: 'DeepSeek-R1 (Local Default)', description: '本地私有化部署的 DeepSeek-R1 推理模型', reasoning: true },
+      { id: 'deepseek-r1:32b', name: 'DeepSeek-R1:32b (本地高階)', description: '32B 參數量本地推理大模型', reasoning: true },
+      { id: 'deepseek-r1:14b', name: 'DeepSeek-R1:14b (本地平衡)', description: '14B 參數量中等推理模型', reasoning: true },
+      { id: 'deepseek-r1:7b', name: 'DeepSeek-R1:7b (本地輕量)', description: '7B 輕量推理模型，一般電腦皆可流暢運行', reasoning: true },
+      { id: 'deepseek-v3:latest', name: 'DeepSeek-V3 (Local)', description: 'DeepSeek-V3 本地通用模型' },
+      { id: 'qwen2.5-coder:latest', name: 'Qwen 2.5 Coder (Local)', description: '專注於程式碼與 Linux Shell 運維的本地模型' },
+      { id: 'qwen2.5-coder:32b', name: 'Qwen 2.5 Coder 32B (本地滿血)', description: '開源代碼之王本地滿血版' },
+      { id: 'qwq:latest', name: 'QwQ:latest (本地推理)', description: '通義 QwQ 本地深度思考模型', reasoning: true },
+      { id: 'llama3.3:latest', name: 'Llama 3.3 (Local)', description: 'Meta 開源大模型本地版' },
+      { id: 'phi4:latest', name: 'Phi-4 (Local)', description: '微軟 Phi-4 高智能開源小模型' },
+      { id: 'mistral:latest', name: 'Mistral (Local)', description: '靈活輕巧的本地開源模型' }
     ]
   },
   custom: {
     name: '自訂 OpenAI 相容服務 (Custom API)',
     defaultBaseUrl: '',
     models: [
-      { id: 'custom-model', name: '自訂模型 (Custom Model)', description: '相容於 OpenAI 規範的自建或第三方轉發 API (如 SiliconFlow、OpenRouter、Moonshot 等)' }
+      { id: 'custom-model', name: '自訂模型 (Custom Model)', description: '相容於 OpenAI 規範的自建或第三方中轉 API (如 vLLM、LocalAI、OpenRouter、OneAPI 等)' }
     ]
   }
 };
