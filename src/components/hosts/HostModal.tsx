@@ -15,7 +15,8 @@ import {
   Usb,
   Cable,
   RotateCcw,
-  Cpu
+  Cpu,
+  Sparkles
 } from 'lucide-react';
 import { HostItem, HostGroup, OsType, AuthType, HostProtocol, SerialPortInfo } from '../../types';
 import { useVaultStore } from '../../stores/useVaultStore';
@@ -41,6 +42,11 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [selectedKeyId, setSelectedKeyId] = useState('');
+  const [fallbackKeyId, setFallbackKeyId] = useState('');
+  const [touchIdKeyId, setTouchIdKeyId] = useState('');
+  const [yubikeyKeyId, setYubikeyKeyId] = useState('');
+  const [hybridPreferred, setHybridPreferred] = useState<'yubikey' | 'touchid'>('yubikey');
+  const [yubiDevices, setYubiDevices] = useState<any[]>([]);
   const [group, setGroup] = useState('');
   const [tags, setTags] = useState('');
   const [osType, setOsType] = useState<OsType>('linux');
@@ -80,9 +86,19 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
     }
   };
 
+  const fetchYubiDevices = async () => {
+    try {
+      if ((window as any).electronAPI?.yubikey?.listDevices) {
+        const devs = await (window as any).electronAPI.yubikey.listDevices();
+        setYubiDevices(devs || []);
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchSerialPorts();
+      fetchYubiDevices();
     }
   }, [isOpen]);
 
@@ -98,6 +114,10 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
       setPrivateKey(initialHost.privateKey || '');
       setPassphrase(initialHost.passphrase || '');
       setSelectedKeyId(initialHost.keyId || '');
+      setFallbackKeyId(initialHost.fallbackKeyId || '');
+      setTouchIdKeyId(initialHost.keyId || '');
+      setYubikeyKeyId(initialHost.yubikeyKeyId || '');
+      setHybridPreferred(initialHost.hybridPreferred || 'yubikey');
       setGroup(initialHost.group || '');
       setTags(initialHost.tags?.join(', ') || '');
       setOsType(initialHost.osType || 'linux');
@@ -126,6 +146,12 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
       setPrivateKey('');
       setPassphrase('');
       setSelectedKeyId('');
+      setFallbackKeyId('');
+      const defaultTouchKey = keys.find(k => k.touchIdProtected || !k.storageType?.includes('yubikey'));
+      const defaultYubiKey = keys.find(k => k.storageType?.includes('yubikey') || k.privateKey?.includes('YUBIKEY'));
+      setTouchIdKeyId(defaultTouchKey?.id || '');
+      setYubikeyKeyId(defaultYubiKey?.id || '');
+      setHybridPreferred('yubikey');
       setGroup('');
       setTags('');
       setOsType('linux');
@@ -144,7 +170,7 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
       setParity('none');
       setFlowControl('none');
     }
-  }, [initialHost, isOpen]);
+  }, [initialHost, isOpen, keys]);
 
   if (!isOpen) return null;
 
@@ -224,8 +250,10 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
       password: authType === 'password' ? password : undefined,
       privateKey: authType === 'privateKey' ? privateKey : undefined,
       passphrase: (authType === 'privateKey' || authType === 'yubikey') && passphrase ? passphrase : undefined,
-      keyId: (authType === 'privateKey' || authType === 'yubikey') ? selectedKeyId : undefined,
-      yubikeyKeyId: authType === 'yubikey' ? selectedKeyId : undefined,
+      keyId: authType === 'hybrid' ? touchIdKeyId : ((authType === 'privateKey' || authType === 'yubikey') ? selectedKeyId : undefined),
+      fallbackKeyId: authType === 'hybrid' ? touchIdKeyId : ((authType === 'privateKey' || authType === 'yubikey') ? (fallbackKeyId || undefined) : undefined),
+      yubikeyKeyId: authType === 'hybrid' ? yubikeyKeyId : (authType === 'yubikey' ? selectedKeyId : undefined),
+      hybridPreferred: authType === 'hybrid' ? hybridPreferred : undefined,
       group: group || undefined,
       tags: tagList,
       osType,
@@ -651,60 +679,220 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
             <div className="space-y-4 animate-fade-in">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-2">認證登入方式</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   <button
                     type="button"
                     onClick={() => setAuthType('password')}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
+                    className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
                       authType === 'password'
                         ? 'border-primary bg-primary/10 text-primary-light'
                         : 'border-border bg-sidebar hover:bg-card text-muted hover:text-slate-200'
                     }`}
                   >
                     <Lock className="w-4 h-4" />
-                    <span className="text-xs font-medium">密碼認證</span>
+                    <span className="text-[11px] font-medium">密碼認證</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setAuthType('privateKey')}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
+                    className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
                       authType === 'privateKey'
                         ? 'border-primary bg-primary/10 text-primary-light'
                         : 'border-border bg-sidebar hover:bg-card text-muted hover:text-slate-200'
                     }`}
                   >
                     <Key className="w-4 h-4" />
-                    <span className="text-xs font-medium">SSH 私鑰</span>
+                    <span className="text-[11px] font-medium">SSH 私鑰</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setAuthType('yubikey')}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
+                    className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
                       authType === 'yubikey'
                         ? 'border-amber-500 bg-amber-500/10 text-amber-400'
                         : 'border-border bg-sidebar hover:bg-card text-muted hover:text-slate-200'
                     }`}
                   >
                     <Usb className="w-4 h-4" />
-                    <span className="text-xs font-medium">YubiKey</span>
+                    <span className="text-[11px] font-medium">YubiKey</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthType('hybrid');
+                      if (!touchIdKeyId) {
+                        const firstTouch = keys.find(k => k.touchIdProtected || !k.storageType?.includes('yubikey'));
+                        if (firstTouch) setTouchIdKeyId(firstTouch.id);
+                      }
+                      if (!yubikeyKeyId) {
+                        const firstYubi = keys.find(k => k.storageType?.includes('yubikey') || k.privateKey?.includes('YUBIKEY'));
+                        if (firstYubi) setYubikeyKeyId(firstYubi.id);
+                      }
+                    }}
+                    className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all relative overflow-hidden ${
+                      authType === 'hybrid'
+                        ? 'border-purple-500 bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/40 shadow-sm'
+                        : 'border-border bg-sidebar hover:bg-card text-muted hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <Fingerprint className="w-3.5 h-3.5 text-purple-400" />
+                      <span className="text-mutedDark text-[10px]">+</span>
+                      <Usb className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                    <span className="text-[11px] font-semibold tracking-tight">雙模自適應</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setAuthType('agent')}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
+                    className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
                       authType === 'agent'
                         ? 'border-primary bg-primary/10 text-primary-light'
                         : 'border-border bg-sidebar hover:bg-card text-muted hover:text-slate-200'
                     }`}
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span className="text-xs font-medium">SSH Agent</span>
+                    <span className="text-[11px] font-medium">SSH Agent</span>
                   </button>
                 </div>
               </div>
+
+              {authType === 'hybrid' && (
+                <div className="space-y-4 animate-fade-in">
+                  {/* Banner */}
+                  <div className="p-3.5 rounded-xl bg-gradient-to-r from-purple-900/20 via-sidebar to-amber-900/20 border border-purple-500/30 flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-slate-100 flex items-center gap-2">
+                        <span>指紋 (Touch ID) ＋ YubiKey 雙模自適應認證</span>
+                        <span className="px-1.5 py-0.2 rounded text-[10px] bg-purple-500/30 text-purple-200 border border-purple-500/40">OR 容災互備</span>
+                      </div>
+                      <p className="text-[11px] text-mutedDark mt-0.5 leading-relaxed">
+                        伺服器已配置這兩組公鑰。在公司/插上 YubiKey 時觸碰硬體，出門沒帶 YubiKey 時自動平滑喚醒 Touch ID 指紋識別，兩者隨時可用，免去切換主機設定的困擾。
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Live hardware status badge */}
+                  <div className="px-3 py-2 rounded-xl bg-sidebar/70 border border-border/60 flex items-center justify-between text-xs">
+                    <span className="text-muted text-[11px]">目前本地硬體檢測：</span>
+                    {yubiDevices.length > 0 ? (
+                      <span className="flex items-center gap-1.5 text-emerald-400 font-medium text-[11px]">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        已檢測到 {yubiDevices[0].model || 'YubiKey 5 系列'} (可即時觸摸)
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-purple-400 font-medium text-[11px]">
+                        <span className="w-2 h-2 rounded-full bg-purple-400" />
+                        未插入 YubiKey (連線將自動調用 Touch ID 指紋秒級登入)
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Dual Key Selectors */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Key 1: Touch ID Key */}
+                    <div className="p-3.5 rounded-xl bg-sidebar border border-purple-500/30 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-purple-300">
+                        <Fingerprint className="w-4 h-4 text-purple-400" />
+                        <span>1. Touch ID 指紋認證私鑰</span>
+                      </div>
+                      <select
+                        value={touchIdKeyId}
+                        onChange={(e) => setTouchIdKeyId(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-background border border-purple-500/40 text-xs text-slate-100 focus:outline-none"
+                      >
+                        <option value="">-- 請選擇指紋密鑰 --</option>
+                        {keys.map((k) => (
+                          <option key={k.id} value={k.id}>
+                            {k.touchIdProtected ? '🔒 [Touch ID] ' : '🔑 '}{k.name} ({k.type.toUpperCase()})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-mutedDark">
+                        當 YubiKey 未在身邊時，連線將使用此私鑰並調用 macOS / Windows 本地生物識別解鎖。
+                      </p>
+                    </div>
+
+                    {/* Key 2: YubiKey Key */}
+                    <div className="p-3.5 rounded-xl bg-sidebar border border-amber-500/30 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
+                        <Usb className="w-4 h-4 text-amber-400" />
+                        <span>2. YubiKey 實體硬體金鑰</span>
+                      </div>
+                      <select
+                        value={yubikeyKeyId}
+                        onChange={(e) => setYubikeyKeyId(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-background border border-amber-500/40 text-xs text-slate-100 focus:outline-none"
+                      >
+                        <option value="">-- 請選擇 YubiKey 金鑰 --</option>
+                        {keys.filter(k => k.storageType === 'yubikey_piv' || k.storageType === 'yubikey_fido2' || k.privateKey?.includes('YUBIKEY') || !k.touchIdProtected).map((k) => (
+                          <option key={k.id} value={k.id}>
+                            🛡️ {k.name} ({k.type.toUpperCase()})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-mutedDark">
+                        當插上 YubiKey 時，連線將優先調用此硬體金鑰並等待物理電極觸控。
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Priority Option */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">預設優先級策略</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label
+                        onClick={() => setHybridPreferred('yubikey')}
+                        className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                          hybridPreferred === 'yubikey'
+                            ? 'border-amber-500/60 bg-amber-500/10 text-amber-300'
+                            : 'border-border bg-sidebar hover:bg-card text-muted'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="hybridPref"
+                          checked={hybridPreferred === 'yubikey'}
+                          onChange={() => setHybridPreferred('yubikey')}
+                          className="accent-amber-500"
+                        />
+                        <div className="text-[11px]">
+                          <div className="font-semibold">優先使用 YubiKey (預設)</div>
+                          <div className="text-[10px] text-mutedDark">插上時觸碰硬體，未插時自動切換指紋</div>
+                        </div>
+                      </label>
+
+                      <label
+                        onClick={() => setHybridPreferred('touchid')}
+                        className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                          hybridPreferred === 'touchid'
+                            ? 'border-purple-500/60 bg-purple-500/10 text-purple-300'
+                            : 'border-border bg-sidebar hover:bg-card text-muted'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="hybridPref"
+                          checked={hybridPreferred === 'touchid'}
+                          onChange={() => setHybridPreferred('touchid')}
+                          className="accent-purple-500"
+                        />
+                        <div className="text-[11px]">
+                          <div className="font-semibold">優先使用 Touch ID 指紋</div>
+                          <div className="text-[10px] text-mutedDark">直接彈指紋窗，隨時可插入 YubiKey 備用</div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {authType === 'password' && (
                 <div>
@@ -750,6 +938,27 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
                       ))}
                     </select>
                   </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      🛡️ 備用容災密鑰 (當 YubiKey 未插入電腦時自動切換使用)
+                    </label>
+                    <select
+                      value={fallbackKeyId}
+                      onChange={(e) => setFallbackKeyId(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-background border border-border focus:border-amber-500 text-xs text-slate-100 focus:outline-none"
+                    >
+                      <option value="">(無備用密鑰 - 僅限 YubiKey)</option>
+                      {keys.map((k) => (
+                        <option key={k.id} value={k.id}>
+                          {k.touchIdProtected ? '🔒 [Touch ID 指紋] ' : '🔑 '}{k.name} ({k.type.toUpperCase()})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-mutedDark mt-1">
+                      💡 提示：若未攜帶或未插入 YubiKey，連線時將自動切換至所選備用指紋密鑰完成認證。
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -768,6 +977,24 @@ export const HostModal: React.FC<HostModalProps> = ({ isOpen, onClose, initialHo
                       {keys.map((k) => (
                         <option key={k.id} value={k.id}>
                           {k.touchIdProtected ? '🔒 [Touch ID] ' : ''}{k.name} ({k.type.toUpperCase()})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      🛡️ 備用容災密鑰 (當主密鑰不可用時自動切換)
+                    </label>
+                    <select
+                      value={fallbackKeyId}
+                      onChange={(e) => setFallbackKeyId(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-background border border-border focus:border-primary text-xs text-slate-100 focus:outline-none"
+                    >
+                      <option value="">(無備用密鑰)</option>
+                      {keys.filter(k => k.id !== selectedKeyId).map((k) => (
+                        <option key={k.id} value={k.id}>
+                          {k.touchIdProtected ? '🔒 [Touch ID 指紋] ' : '🔑 '}{k.name} ({k.type.toUpperCase()})
                         </option>
                       ))}
                     </select>

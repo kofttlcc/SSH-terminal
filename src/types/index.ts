@@ -1,4 +1,4 @@
-export type AuthType = 'password' | 'privateKey' | 'agent' | 'yubikey';
+export type AuthType = 'password' | 'privateKey' | 'agent' | 'yubikey' | 'hybrid';
 
 export interface YubiKeyDevice {
   id: string;
@@ -43,8 +43,10 @@ export interface HostItem {
   privateKey?: string;
   passphrase?: string;
   keyId?: string;
+  fallbackKeyId?: string;
   yubikeyKeyId?: string;
   yubikeyPin?: string;
+  hybridPreferred?: 'yubikey' | 'touchid';
   // Serial Port specific configurations
   serialPort?: string;
   baudRate?: number;
@@ -233,6 +235,55 @@ export interface TerminalSettings {
   renderMode: 'webgl' | 'canvas' | 'dom';
   touchIdEnabled: boolean;
   touchIdForHosts: boolean;
+  aiConfig?: AIModelConfig;
+}
+
+export type AIProvider = 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'ollama' | 'custom';
+
+export interface AIModelConfig {
+  provider: AIProvider;
+  apiKey?: string;
+  baseUrl?: string;
+  model: string;
+  temperature?: number;
+  maxTokens?: number;
+  enableTerminalContext?: boolean;
+  dangerousCommandWarning?: boolean;
+  customSystemPrompt?: string;
+}
+
+export type CommandRiskLevel = 'safe' | 'caution' | 'danger';
+
+export interface ExtractedCommand {
+  command: string;
+  explanation?: string;
+  riskLevel: CommandRiskLevel;
+  riskReason?: string;
+}
+
+export interface AIMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  reasoningContent?: string;
+  commands?: ExtractedCommand[];
+  contextSnapshot?: {
+    hostLabel?: string;
+    osType?: string;
+    hostname?: string;
+    terminalSnippet?: string;
+  };
+  timestamp: number;
+}
+
+export interface AIChatSession {
+  id: string;
+  title: string;
+  hostId?: string;
+  sessionId?: string;
+  messages: AIMessage[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface AppVaultData {
@@ -244,4 +295,5 @@ export interface AppVaultData {
   keys: SSHKeyItem[];
   knownHosts?: KnownHostItem[];
   settings: TerminalSettings;
+  aiSessions?: AIChatSession[];
 }

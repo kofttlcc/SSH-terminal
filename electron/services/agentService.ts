@@ -219,16 +219,18 @@ export class AgentService {
         return this.sendFailure(socket);
       }
 
-      // Prompt Touch ID confirmation
-      const promptReason = `跳板機正在請求調用本地 SSH 私鑰「${matchedKey.name}」進行伺服器連線認證，請按壓指紋授權`;
-      const approved = await this.biometricsService.promptTouchID(promptReason);
+      // Prompt Touch ID confirmation only for Touch ID protected keys
+      if (matchedKey.touchIdProtected) {
+        const promptReason = `SSH 代理正在請求調用受保護私鑰「${matchedKey.name}」，請按壓指紋授權`;
+        const approved = await this.biometricsService.promptTouchID(promptReason);
 
-      if (!approved) {
-        console.warn(`Touch ID rejected or cancelled for key: ${matchedKey.name}`);
-        return this.sendFailure(socket);
+        if (!approved) {
+          console.warn(`Touch ID rejected or cancelled for key: ${matchedKey.name}`);
+          return this.sendFailure(socket);
+        }
       }
 
-      // User authorized via Touch ID! Perform signature computation locally
+      // User authorized! Perform signature computation locally
       const rawPriv = YubikeyService.extractRawKey(matchedKey.privateKey);
       const normalizedPriv = KeygenService.normalizePrivateKey(rawPriv, matchedKey.passphrase) || rawPriv;
       let sigWire: Buffer | null = null;

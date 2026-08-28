@@ -6,6 +6,7 @@ import { KeygenService } from './keygenService';
 import { VaultService } from './vaultService';
 import { AgentService } from './agentService';
 import { YubikeyService } from './yubikeyService';
+import { BiometricsService } from './biometricsService';
 
 export interface SSHSession {
   sessionId: string;
@@ -43,7 +44,8 @@ export class SSHService {
     public knownHostsService: KnownHostsService,
     public vaultService?: VaultService,
     public agentService?: AgentService,
-    public yubikeyService?: YubikeyService
+    public yubikeyService?: YubikeyService,
+    public biometricsService?: BiometricsService
   ) {}
 
   public confirmTouch(sessionId: string, approved: boolean) {
@@ -151,6 +153,82 @@ export class SSHService {
 
         if (host.authType === 'password' && host.password) {
           config.password = host.password;
+        } else if (host.authType === 'hybrid') {
+          // Dual-Mode: Touch ID Fingerprint & YubiKey Adaptive
+          const vData = this.vaultService ? this.vaultService.getVaultData() : { keys: [] };
+          const allKeys = vData.keys || [];
+
+          const touchIdKeyId = host.keyId || host.fallbackKeyId;
+          const yubikeyKeyId = host.yubikeyKeyId;
+
+          const foundTouchKey = allKeys.find((k) => k.id === touchIdKeyId) || allKeys.find((k) => k.touchIdProtected && !k.storageType?.includes('yubikey'));
+          const foundYubikey = allKeys.find((k) => k.id === yubikeyKeyId) || allKeys.find((k) => k.storageType?.includes('yubikey') || k.privateKey?.includes('YUBIKEY'));
+
+          const yubiDevs = this.yubikeyService?.listDevices() || [];
+          const yubiAvailable = yubiDevs.length > 0 && !!foundYubikey;
+          const preferTouch = host.hybridPreferred === 'touchid';
+
+          let selectedActiveKey: any = null;
+          let requireTouchAuth = false;
+
+          if (yubiAvailable && !preferTouch) {
+            if (!win.isDestroyed()) {
+              win.webContents.send('terminal:data', {
+                sessionId,
+                data: `\r\n\x1b[36m[ITGeek 雙模認證]\x1b[0m 偵測到 YubiKey 硬體 (${yubiDevs[0].model || 'YubiKey'})，請觸摸 YubiKey 金屬電極進行授權...\r\n`
+              });
+            }
+            const approved = await this.promptYubiKeyTouch(sessionId, win, foundYubikey.name, yubiDevs[0].serial);
+            if (approved) {
+              selectedActiveKey = foundYubikey;
+            } else {
+              if (!win.isDestroyed()) {
+                win.webContents.send('terminal:data', {
+                  sessionId,
+                  data: `\r\n\x1b[33m[ITGeek 雙模認證]\x1b[0m YubiKey 未觸控或已取消，自動切換至 Touch ID 指紋識別...\r\n`
+                });
+              }
+              selectedActiveKey = foundTouchKey;
+              requireTouchAuth = true;
+            }
+          } else {
+            // YubiKey not available or user preferred Touch ID -> MUST REQUIRE TOUCH ID FINGERPRINT
+            if (!win.isDestroyed()) {
+              win.webContents.send('terminal:data', {
+                sessionId,
+                data: `\r\n\x1b[35m[ITGeek 雙模認證]\x1b[0m ${yubiAvailable ? '優先啟用' : '未檢測到 YubiKey，已自動啟用'} Touch ID 指紋密鑰「${foundTouchKey?.name || '本地密鑰'}」，請按壓指紋授權...\r\n`
+              });
+            }
+            selectedActiveKey = foundTouchKey || foundYubikey;
+            requireTouchAuth = true;
+          }
+
+          if (!selectedActiveKey) {
+            return { sessionId, success: false, error: '未找到雙模認證所需的有效 SSH 金鑰' };
+          }
+
+          // Enforce Touch ID authentication strictly if falling back to Touch ID key
+          if (requireTouchAuth || selectedActiveKey.touchIdProtected) {
+            if (this.biometricsService && this.biometricsService.canPromptTouchID()) {
+              const bioRes = await this.biometricsService.promptTouchID(
+                `正在調用 SSH 私鑰「${selectedActiveKey.name || host.label}」認證伺服器，請按壓指紋`
+              );
+              if (!bioRes || !bioRes.success) {
+                if (!win.isDestroyed()) {
+                  win.webContents.send('terminal:data', {
+                    sessionId,
+                    data: `\r\n\x1b[31m[ITGeek 雙模認證]\x1b[0m Touch ID 指紋識別未授權或已取消，連線已終止。\r\n`
+                  });
+                }
+                return { sessionId, success: false, error: bioRes?.error || 'Touch ID 指紋識別未通過，連線已終止' };
+              }
+            }
+          }
+
+          let raw = YubikeyService.extractRawKey(selectedActiveKey.privateKey);
+          const normalized = KeygenService.normalizePrivateKey(raw, selectedActiveKey.passphrase) || raw;
+          config.privateKey = normalized;
+          if (selectedActiveKey.passphrase) config.passphrase = selectedActiveKey.passphrase;
         } else if (host.authType === 'privateKey' || host.authType === 'yubikey') {
           let rawKey = host.privateKey;
           let passphrase = host.passphrase;
@@ -166,12 +244,62 @@ export class SSHService {
               if (foundKey.storageType === 'yubikey_piv' || foundKey.storageType === 'yubikey_fido2' || host.authType === 'yubikey') {
                 const devs = this.yubikeyService?.listDevices() || [];
                 if (devs.length === 0) {
-                  return { sessionId, success: false, error: '未偵測到 YubiKey 硬體設備，請將 YubiKey 插入電腦 USB 埠後再試' };
-                }
+                  // YubiKey not present -> Check if host has configured fallbackKeyId
+                  if (host.fallbackKeyId) {
+                    const fallbackKey = vData.keys?.find((k) => k.id === host.fallbackKeyId);
+                    if (fallbackKey) {
+                      if (!win.isDestroyed()) {
+                        win.webContents.send('terminal:data', {
+                          sessionId,
+                          data: `\r\n\x1b[33m[ITGeek SSH]\x1b[0m 未偵測到 YubiKey 硬體，自動切換至備用密鑰「\x1b[36m${fallbackKey.name}\x1b[0m」進行連線...\r\n`
+                        });
+                      }
 
-                const approved = await this.promptYubiKeyTouch(sessionId, win, foundKey.name, devs[0].serial);
-                if (!approved) {
-                  return { sessionId, success: false, error: 'YubiKey 物理觸摸認證已取消或超時' };
+                      // Require Touch ID for fallback key if protected
+                      if (fallbackKey.touchIdProtected && this.biometricsService && this.biometricsService.canPromptTouchID()) {
+                        const bioRes = await this.biometricsService.promptTouchID(
+                          `正在調用備用 SSH 私鑰「${fallbackKey.name}」認證伺服器，請按壓指紋`
+                        );
+                        if (!bioRes || !bioRes.success) {
+                          if (!win.isDestroyed()) {
+                            win.webContents.send('terminal:data', {
+                              sessionId,
+                              data: `\r\n\x1b[31m[ITGeek SSH]\x1b[0m 指紋識別未通過或已取消，連線已終止。\r\n`
+                            });
+                          }
+                          return { sessionId, success: false, error: 'Touch ID 指紋識別未通過，已取消連線' };
+                        }
+                      }
+
+                      rawKey = fallbackKey.privateKey;
+                      passphrase = fallbackKey.passphrase;
+                    } else {
+                      return { sessionId, success: false, error: '未偵測到 YubiKey 硬體設備，請插入 YubiKey 後重試' };
+                    }
+                  } else {
+                    return { sessionId, success: false, error: '未偵測到 YubiKey 硬體設備，請將 YubiKey 插入電腦 USB 埠後再試 (或在主機設定中配置備用指紋密鑰)' };
+                  }
+                } else {
+                  const approved = await this.promptYubiKeyTouch(sessionId, win, foundKey.name, devs[0].serial);
+                  if (!approved) {
+                    return { sessionId, success: false, error: 'YubiKey 物理觸摸認證已取消或超時' };
+                  }
+                }
+              } else if (foundKey.touchIdProtected || host.touchIdForKey) {
+                // Regular private key with Touch ID protection
+                if (this.biometricsService && this.biometricsService.canPromptTouchID()) {
+                  const bioRes = await this.biometricsService.promptTouchID(
+                    `正在調用 SSH 私鑰「${foundKey.name || host.label}」認證伺服器，請按壓指紋`
+                  );
+                  if (!bioRes || !bioRes.success) {
+                    if (!win.isDestroyed()) {
+                      win.webContents.send('terminal:data', {
+                        sessionId,
+                        data: `\r\n\x1b[31m[ITGeek SSH]\x1b[0m 指紋識別未通過或已取消，連線已終止。\r\n`
+                      });
+                    }
+                    return { sessionId, success: false, error: 'Touch ID 指紋識別未通過，已取消連線' };
+                  }
                 }
               }
             }
@@ -188,11 +316,13 @@ export class SSHService {
         }
 
         // Enable SSH Agent Forwarding with Touch ID support if agentService is available
-        if (this.agentService && host.agentForward !== false) {
+        if (this.agentService) {
           const sockPath = this.agentService.getSocketPath();
           if (sockPath) {
-            config.agentForward = true;
             config.agent = sockPath;
+            if (host.agentForward !== false) {
+              config.agentForward = true;
+            }
           }
         }
 

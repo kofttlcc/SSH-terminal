@@ -9,11 +9,13 @@ import {
   Settings, 
   Plus, 
   Search,
-  Radio
+  Radio,
+  Sparkles
 } from 'lucide-react';
 import { useAppStore, MainViewType } from '../../stores/useAppStore';
 import { useTerminalStore } from '../../stores/useTerminalStore';
 import { useVaultStore } from '../../stores/useVaultStore';
+import { useAIStore } from '../../stores/useAIStore';
 
 export const SidebarNav: React.FC = () => {
   const { activeView, setActiveView, setCommandPaletteOpen, setQuickConnectOpen } = useAppStore();
@@ -74,6 +76,23 @@ export const SidebarNav: React.FC = () => {
             </div>
             <kbd className="hidden md:inline text-[10px] bg-background/80 px-1.5 py-0.5 rounded border border-border/60 text-mutedDark font-mono">
               {isMac ? '⌘K' : 'Ctrl+K'}
+            </kbd>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveView('terminal');
+              useAIStore.getState().setDrawerOpen(true);
+            }}
+            className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs transition-all group"
+            title={`開啟 AI 伺服器智能體 (${isMac ? 'Cmd+L' : 'Ctrl+L'})`}
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400 group-hover:rotate-12 transition-transform" />
+              <span className="hidden md:inline text-xs font-semibold">AI 智能體</span>
+            </div>
+            <kbd className="hidden md:inline text-[10px] bg-background/80 px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-300/80 font-mono">
+              {isMac ? '⌘L' : 'Ctrl+L'}
             </kbd>
           </button>
         </div>

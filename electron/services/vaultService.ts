@@ -25,7 +25,15 @@ const DEFAULT_SETTINGS: TerminalSettings = {
   localShell: process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh'),
   renderMode: 'canvas',
   touchIdEnabled: false,
-  touchIdForHosts: false
+  touchIdForHosts: false,
+  aiConfig: {
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+    temperature: 0.3,
+    maxTokens: 4096,
+    enableTerminalContext: true,
+    dangerousCommandWarning: true
+  }
 };
 
 const DEFAULT_GROUPS: HostGroup[] = [

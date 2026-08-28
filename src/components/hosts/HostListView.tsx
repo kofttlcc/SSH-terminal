@@ -290,7 +290,7 @@ export const HostListView: React.FC = () => {
                       <td className="px-4 py-3 text-muted">
                         {isSerial
                           ? 'Serial 串口'
-                          : (host.authType === 'password' ? '密碼' : host.authType === 'yubikey' ? 'YubiKey' : host.authType === 'privateKey' ? '私鑰' : 'Agent')}
+                          : (host.authType === 'hybrid' ? '⚡ 雙模' : host.authType === 'password' ? '密碼' : host.authType === 'yubikey' ? 'YubiKey' : host.authType === 'privateKey' ? '私鑰' : 'Agent')}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">

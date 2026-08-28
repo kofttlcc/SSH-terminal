@@ -14,12 +14,15 @@ import {
   ShieldCheck, 
   Maximize2,
   Usb,
-  Cable
+  Cable,
+  Sparkles,
+  Bot
 } from 'lucide-react';
 import { TerminalPaneState, HostItem } from '../../types';
 import { useVaultStore } from '../../stores/useVaultStore';
 import { useTerminalStore } from '../../stores/useTerminalStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { useAIStore } from '../../stores/useAIStore';
 import { TERMINAL_THEMES } from '../../utils/themePresets';
 
 interface TerminalPaneProps {
@@ -426,6 +429,30 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
     }
   };
 
+  const getRecentBufferText = () => {
+    if (!terminalRef.current) return '';
+    const sel = terminalRef.current.getSelection();
+    if (sel) return sel;
+    const buffer = terminalRef.current.buffer.active;
+    const lines: string[] = [];
+    const endLine = buffer.baseY + buffer.cursorY;
+    const startLine = Math.max(0, endLine - 50);
+    for (let i = startLine; i <= endLine; i++) {
+      const line = buffer.getLine(i);
+      if (line) lines.push(line.translateToString(true));
+    }
+    return lines.join('\n').trim();
+  };
+
+  const handleOpenAI = () => {
+    useAIStore.getState().setDrawerOpen(true);
+  };
+
+  const handleDiagnoseWithAI = () => {
+    const text = getRecentBufferText();
+    useAIStore.getState().diagnoseTerminalError(text, host, pane.isLocal);
+  };
+
   const isGlobalSyncActive = useTerminalStore((state) => state.isGlobalKeystrokeSync);
   const syncTargetScope = useTerminalStore((state) => state.syncTargetScope);
   const customTargetSessionIds = useTerminalStore((state) => state.customTargetSessionIds);
@@ -494,6 +521,27 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1 text-muted">
+          {/* AI Diagnose Output Trigger */}
+          <button
+            onClick={handleDiagnoseWithAI}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-medium transition-colors"
+            title="使用 AI 分析當前終端輸出與診斷錯誤"
+          >
+            <Sparkles className="w-2.5 h-2.5 text-purple-400" />
+            <span>AI 診斷</span>
+          </button>
+
+          {/* Open AI Assistant Drawer Trigger */}
+          <button
+            onClick={handleOpenAI}
+            className="p-1 hover:bg-purple-500/20 hover:text-purple-300 text-purple-400 rounded transition-colors"
+            title="開啟 AI 智能體側邊抽屜 (Cmd+L)"
+          >
+            <Bot className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="w-[1px] h-3 bg-border/80 mx-0.5" />
+
           <button
             onClick={handleReconnect}
             className="p-1 hover:bg-card hover:text-white rounded transition-colors"

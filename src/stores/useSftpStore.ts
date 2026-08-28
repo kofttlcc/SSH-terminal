@@ -30,9 +30,13 @@ interface SftpStoreState {
   loadRemoteDir: (targetPath?: string) => Promise<void>;
   loadLocalDir: (targetPath?: string) => Promise<void>;
   uploadFile: (localFilename: string) => Promise<void>;
+  uploadArbitraryFile: (fullSourcePath: string) => Promise<void>;
   downloadFile: (remoteFilename: string) => Promise<void>;
   deleteRemoteFile: (filename: string, isDirectory: boolean) => Promise<void>;
   createRemoteFolder: (folderName: string) => Promise<void>;
+  deleteLocalFile: (filename: string, isDirectory: boolean) => Promise<void>;
+  createLocalFolder: (folderName: string) => Promise<void>;
+  revealLocalInFolder: (filename: string) => Promise<void>;
   openRemoteFileInEditor: (filename: string) => Promise<void>;
   saveRemoteFileContent: (remotePath: string, content: string) => Promise<boolean>;
   toggleTransferQueue: () => void;
@@ -177,7 +181,10 @@ export const useSftpStore = create<SftpStoreState>((set, get) => ({
 
   uploadFile: async (localFilename) => {
     const { sessionId, localPath, remotePath } = get();
-    if (!sessionId) return;
+    if (!sessionId) {
+      useAppStore.getState().addToast('warning', '請先點擊上方「連線 SFTP」按鈕連線至伺服器再進行上傳');
+      return;
+    }
 
     const source = `${localPath}/${localFilename}`;
     const target = `${remotePath}/${localFilename}`.replace('//', '/');
@@ -208,7 +215,54 @@ export const useSftpStore = create<SftpStoreState>((set, get) => ({
         set((state) => ({
           transfers: state.transfers.map((t) => (t.id === transferId ? { ...t, status: 'completed', progress: 100, completedAt: Date.now() } : t))
         }));
-        useAppStore.getState().addToast('success', `已上傳: ${localFilename}`);
+        useAppStore.getState().addToast('success', `已成功上傳: ${localFilename}`);
+        await get().loadRemoteDir();
+      } else {
+        set((state) => ({
+          transfers: state.transfers.map((t) => (t.id === transferId ? { ...t, status: 'failed', errorMessage: res.error } : t))
+        }));
+        useAppStore.getState().addToast('error', `上傳失敗: ${res.error}`);
+      }
+    }
+  },
+
+  uploadArbitraryFile: async (fullSourcePath: string) => {
+    const { sessionId, remotePath } = get();
+    if (!sessionId) {
+      useAppStore.getState().addToast('warning', '請先點擊上方「連線 SFTP」按鈕連線至伺服器再進行上傳');
+      return;
+    }
+
+    const filename = fullSourcePath.replace(/\\/g, '/').split('/').pop() || 'uploaded-file';
+    const target = `${remotePath}/${filename}`.replace('//', '/');
+    const transferId = 'tr-' + Date.now();
+
+    const newTransfer: SftpTransferItem = {
+      id: transferId,
+      filename,
+      sourcePath: fullSourcePath,
+      targetPath: target,
+      direction: 'upload',
+      totalSize: 0,
+      transferredSize: 0,
+      status: 'transferring',
+      speed: '計算中...',
+      progress: 0,
+      startedAt: Date.now()
+    };
+
+    set((state) => ({
+      transfers: [newTransfer, ...state.transfers],
+      showTransferQueue: true
+    }));
+
+    if ((window as any).electronAPI?.sftp) {
+      const res = await (window as any).electronAPI.sftp.upload(sessionId, fullSourcePath, target, transferId);
+      if (res.success) {
+        set((state) => ({
+          transfers: state.transfers.map((t) => (t.id === transferId ? { ...t, status: 'completed', progress: 100, completedAt: Date.now() } : t))
+        }));
+        useAppStore.getState().addToast('success', `已成功上傳: ${filename}`);
         await get().loadRemoteDir();
       } else {
         set((state) => ({
@@ -221,7 +275,10 @@ export const useSftpStore = create<SftpStoreState>((set, get) => ({
 
   downloadFile: async (remoteFilename) => {
     const { sessionId, localPath, remotePath } = get();
-    if (!sessionId) return;
+    if (!sessionId) {
+      useAppStore.getState().addToast('warning', '請先點擊上方「連線 SFTP」按鈕連線至伺服器再進行下載');
+      return;
+    }
 
     const source = `${remotePath}/${remoteFilename}`.replace('//', '/');
     const target = `${localPath}/${remoteFilename}`;
@@ -252,7 +309,7 @@ export const useSftpStore = create<SftpStoreState>((set, get) => ({
         set((state) => ({
           transfers: state.transfers.map((t) => (t.id === transferId ? { ...t, status: 'completed', progress: 100, completedAt: Date.now() } : t))
         }));
-        useAppStore.getState().addToast('success', `已下載: ${remoteFilename}`);
+        useAppStore.getState().addToast('success', `已成功下載: ${remoteFilename}`);
         await get().loadLocalDir();
       } else {
         set((state) => ({
@@ -271,7 +328,7 @@ export const useSftpStore = create<SftpStoreState>((set, get) => ({
     if ((window as any).electronAPI?.sftp) {
       const res = await (window as any).electronAPI.sftp.delete(sessionId, target, isDirectory);
       if (res.success) {
-        useAppStore.getState().addToast('success', `已刪除: ${filename}`);
+        useAppStore.getState().addToast('success', `已刪除遠端項目: ${filename}`);
         await get().loadRemoteDir();
       } else {
         useAppStore.getState().addToast('error', `刪除失敗: ${res.error}`);
@@ -287,11 +344,57 @@ export const useSftpStore = create<SftpStoreState>((set, get) => ({
     if ((window as any).electronAPI?.sftp) {
       const res = await (window as any).electronAPI.sftp.mkdir(sessionId, target);
       if (res.success) {
-        useAppStore.getState().addToast('success', `已建立資料夾: ${folderName}`);
+        useAppStore.getState().addToast('success', `已建立遠端資料夾: ${folderName}`);
         await get().loadRemoteDir();
       } else {
         useAppStore.getState().addToast('error', `建立資料夾失敗: ${res.error}`);
       }
+    }
+  },
+
+  deleteLocalFile: async (filename, isDirectory) => {
+    const { localPath } = get();
+    if (!localPath) return;
+    const target = `${localPath}/${filename}`;
+
+    if ((window as any).electronAPI?.sftp?.deleteLocal) {
+      const res = await (window as any).electronAPI.sftp.deleteLocal(target, isDirectory);
+      if (res.success) {
+        useAppStore.getState().addToast('success', `已刪除本地項目: ${filename}`);
+        await get().loadLocalDir();
+      } else {
+        useAppStore.getState().addToast('error', `刪除本地檔案失敗: ${res.error}`);
+      }
+    } else {
+      useAppStore.getState().addToast('info', `已刪除: ${filename} (預覽模式)`);
+    }
+  },
+
+  createLocalFolder: async (folderName) => {
+    const { localPath } = get();
+    if (!localPath) return;
+    const target = `${localPath}/${folderName}`;
+
+    if ((window as any).electronAPI?.sftp?.createLocalFolder) {
+      const res = await (window as any).electronAPI.sftp.createLocalFolder(target);
+      if (res.success) {
+        useAppStore.getState().addToast('success', `已建立本機資料夾: ${folderName}`);
+        await get().loadLocalDir();
+      } else {
+        useAppStore.getState().addToast('error', `建立本機資料夾失敗: ${res.error}`);
+      }
+    } else {
+      useAppStore.getState().addToast('info', `已建立: ${folderName} (預覽模式)`);
+    }
+  },
+
+  revealLocalInFolder: async (filename) => {
+    const { localPath } = get();
+    if (!localPath) return;
+    const target = `${localPath}/${filename}`;
+
+    if ((window as any).electronAPI?.sftp?.revealInFolder) {
+      await (window as any).electronAPI.sftp.revealInFolder(target);
     }
   },
 

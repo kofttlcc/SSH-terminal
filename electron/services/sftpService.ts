@@ -8,6 +8,7 @@ import { HostItem, SftpFileItem } from '../../src/types';
 import { KeygenService } from './keygenService';
 import { VaultService } from './vaultService';
 import { YubikeyService } from './yubikeyService';
+import { BiometricsService } from './biometricsService';
 
 export interface SftpSession {
   sessionId: string;
@@ -19,7 +20,11 @@ export interface SftpSession {
 export class SftpService {
   private sessions: Map<string, SftpSession> = new Map();
 
-  constructor(public vaultService?: VaultService) {}
+  constructor(
+    public vaultService?: VaultService,
+    public yubikeyService?: YubikeyService,
+    public biometricsService?: BiometricsService
+  ) {}
 
   public async connect(
     sessionId: string,
@@ -38,6 +43,32 @@ export class SftpService {
 
       if (host.authType === 'password' && host.password) {
         config.password = host.password;
+      } else if (host.authType === 'hybrid') {
+        const vData = this.vaultService ? this.vaultService.getVaultData() : { keys: [] };
+        const allKeys = vData.keys || [];
+        const foundTouchKey = allKeys.find((k) => k.id === host.keyId || (k.touchIdProtected && !k.storageType?.includes('yubikey')));
+        const foundYubikey = allKeys.find((k) => k.id === host.yubikeyKeyId || k.storageType?.includes('yubikey') || k.privateKey?.includes('YUBIKEY'));
+
+        const yubiDevs = this.yubikeyService?.listDevices() || [];
+        const yubiAvailable = yubiDevs.length > 0 && !!foundYubikey;
+        const activeKey = yubiAvailable ? foundYubikey : (foundTouchKey || foundYubikey);
+
+        if (activeKey) {
+          const isTouchKey = !yubiAvailable || activeKey === foundTouchKey || activeKey.touchIdProtected;
+          if (isTouchKey && this.biometricsService && this.biometricsService.canPromptTouchID()) {
+            const bioRes = await this.biometricsService.promptTouchID(
+              `SFTP 連線：正在調用 SSH 私鑰「${activeKey.name || host.label}」，請按壓指紋`
+            );
+            if (!bioRes || !bioRes.success) {
+              return { success: false, error: bioRes?.error || 'Touch ID 指紋識別未授權，已終止 SFTP 連線' };
+            }
+          }
+
+          let raw = YubikeyService.extractRawKey(activeKey.privateKey);
+          const normalized = KeygenService.normalizePrivateKey(raw, activeKey.passphrase) || raw;
+          config.privateKey = normalized;
+          if (activeKey.passphrase) config.passphrase = activeKey.passphrase;
+        }
       } else {
         // Private Key, YubiKey, or Key file authentication
         let rawKey = host.privateKey;
@@ -270,7 +301,37 @@ export class SftpService {
         ? path.join(os.homedir(), localPath.slice(1))
         : path.resolve(localPath);
 
-      const totalSize = fs.statSync(resolvedLocal).size;
+      if (!fs.existsSync(resolvedLocal)) {
+        return { success: false, error: `本機檔案或目錄不存在: ${resolvedLocal}` };
+      }
+
+      const lStat = fs.statSync(resolvedLocal);
+
+      // Check if local target is a directory
+      if (lStat.isDirectory()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('sftp:transfer-progress', {
+            transferId,
+            progress: 25,
+            transferred: 0
+          });
+        }
+
+        // Upload entire directory recursively
+        await session.client.uploadDir(resolvedLocal, remotePath);
+
+        if (!win.isDestroyed()) {
+          win.webContents.send('sftp:transfer-progress', {
+            transferId,
+            progress: 100,
+            transferred: lStat.size
+          });
+        }
+        return { success: true };
+      }
+
+      // Regular file upload
+      const totalSize = lStat.size;
       let lastPercent = 0;
 
       await session.client.fastPut(resolvedLocal, remotePath, {
@@ -310,6 +371,35 @@ export class SftpService {
         ? path.join(os.homedir(), localPath.slice(1))
         : path.resolve(localPath);
 
+      const existsType = await session.client.exists(remotePath);
+      if (!existsType) {
+        return { success: false, error: `遠端檔案或目錄不存在: ${remotePath}` };
+      }
+
+      // Check if remote target is a directory
+      if (existsType === 'd') {
+        if (!win.isDestroyed()) {
+          win.webContents.send('sftp:transfer-progress', {
+            transferId,
+            progress: 25,
+            transferred: 0
+          });
+        }
+
+        // Download entire directory recursively
+        await session.client.downloadDir(remotePath, resolvedLocal);
+
+        if (!win.isDestroyed()) {
+          win.webContents.send('sftp:transfer-progress', {
+            transferId,
+            progress: 100,
+            transferred: 0
+          });
+        }
+        return { success: true };
+      }
+
+      // Regular file download
       const stat = await session.client.stat(remotePath);
       const totalSize = stat.size;
       let lastPercent = 0;

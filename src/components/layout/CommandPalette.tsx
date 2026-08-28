@@ -15,6 +15,7 @@ import {
 import { useAppStore } from '../../stores/useAppStore';
 import { useVaultStore } from '../../stores/useVaultStore';
 import { useTerminalStore } from '../../stores/useTerminalStore';
+import { useAIStore } from '../../stores/useAIStore';
 import { HostItem, Snippet } from '../../types';
 
 export const CommandPalette: React.FC = () => {
@@ -68,11 +69,13 @@ export const CommandPalette: React.FC = () => {
 
   const actions = [
     { id: 'quick-connect', title: '快速發起 SSH 連線', icon: Plus, action: () => { setCommandPaletteOpen(false); setQuickConnectOpen(true); } },
+    { id: 'ai-agent', title: '開啟 ITGeek AI 伺服器智能體 (AI Agent)', icon: Sparkles, action: () => { setCommandPaletteOpen(false); setActiveView('terminal'); useAIStore.getState().setDrawerOpen(true); } },
+    { id: 'ai-inline', title: 'AI 自然語言轉 Shell 指令 (Inline Assist)', icon: Sparkles, action: () => { setCommandPaletteOpen(false); setActiveView('terminal'); useAIStore.getState().setInlineAssistOpen(true); } },
     { id: 'local-shell', title: '開啟本機 Shell 終端 (zsh/bash)', icon: Terminal, action: () => { setCommandPaletteOpen(false); openLocalTerminal(); } },
     { id: 'view-sftp', title: '開啟 SFTP 雙欄檔案管理器', icon: FolderSync, action: () => { setCommandPaletteOpen(false); setActiveView('sftp'); } },
     { id: 'view-tunnels', title: '管理 SSH 端口轉發隧道', icon: Network, action: () => { setCommandPaletteOpen(false); setActiveView('tunnels'); } },
     { id: 'view-keys', title: '管理 SSH 密鑰與身份憑證', icon: KeyRound, action: () => { setCommandPaletteOpen(false); setActiveView('keys'); } },
-    { id: 'view-settings', title: '開啟偏好設定與主題', icon: Settings, action: () => { setCommandPaletteOpen(false); setActiveView('settings'); } },
+    { id: 'view-settings', title: '開啟偏好設定與 AI 模型設置', icon: Settings, action: () => { setCommandPaletteOpen(false); setActiveView('settings'); } },
   ];
 
   const filteredActions = actions.filter((a) => a.title.toLowerCase().includes(query.toLowerCase()));

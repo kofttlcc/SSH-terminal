@@ -125,8 +125,20 @@ export const HostCard: React.FC<HostCardProps> = ({ host, groups, onEdit, onDele
               {host.baudRate || 9600} bps (8N1)
             </span>
           ) : (
-            <span className="text-[10px] px-2 py-0.5 rounded-md bg-sidebar border border-border/60 text-muted font-mono">
-              {host.authType === 'password' ? '密碼認證' : host.authType === 'yubikey' ? 'YubiKey 認證' : host.authType === 'privateKey' ? '私鑰認證' : 'Agent 認證'}
+            <span className={`text-[10px] px-2 py-0.5 rounded-md border font-mono ${
+              host.authType === 'hybrid'
+                ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
+                : 'bg-sidebar border-border/60 text-muted'
+            }`}>
+              {host.authType === 'hybrid'
+                ? '⚡ 雙模 (指紋/YubiKey)'
+                : host.authType === 'password'
+                ? '密碼認證'
+                : host.authType === 'yubikey'
+                ? 'YubiKey 認證'
+                : host.authType === 'privateKey'
+                ? '私鑰認證'
+                : 'Agent 認證'}
             </span>
           )}
 

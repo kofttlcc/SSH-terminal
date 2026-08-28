@@ -109,6 +109,12 @@ export const electronAPI = {
       ipcRenderer.invoke('sftp:rename', { sessionId, srcPath, dstPath }),
     disconnect: (sessionId: string) =>
       ipcRenderer.invoke('sftp:disconnect', { sessionId }),
+    deleteLocal: (localPath: string, isDirectory: boolean) =>
+      ipcRenderer.invoke('sftp:deleteLocal', { localPath, isDirectory }),
+    createLocalFolder: (localPath: string) =>
+      ipcRenderer.invoke('sftp:createLocalFolder', { localPath }),
+    revealInFolder: (localPath: string) =>
+      ipcRenderer.invoke('sftp:revealInFolder', { localPath }),
     onTransferProgress: (callback: (data: { transferId: string; transferredSize: number; totalSize: number; progress: number }) => void) => {
       const listener = (_: any, value: any) => callback(value);
       ipcRenderer.on('sftp:transfer-progress', listener);

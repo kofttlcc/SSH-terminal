@@ -14,10 +14,12 @@ import {
   Minus,
   Sparkles,
   Send,
-  Target
+  Target,
+  Bot
 } from 'lucide-react';
 import { useTerminalStore } from '../../stores/useTerminalStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { useAIStore } from '../../stores/useAIStore';
 import { SplitMode } from '../../types';
 
 export const TopTabBar: React.FC = () => {
@@ -140,6 +142,22 @@ export const TopTabBar: React.FC = () => {
         {/* Split & Sync & Compose Controls (Only active when in terminal view) */}
         {activeTab && activeView === 'terminal' && (
           <div className="flex items-center gap-1.5 mr-2 bg-sidebar px-1.5 py-1 rounded-lg border border-border/60">
+            {/* AI Agent Drawer Toggle */}
+            <button
+              onClick={() => useAIStore.getState().toggleDrawer()}
+              className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-medium transition-all ${
+                useAIStore((state) => state.isDrawerOpen)
+                  ? 'bg-purple-500/25 text-purple-300 border border-purple-500/50 shadow-sm shadow-purple-500/20'
+                  : 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/15'
+              }`}
+              title="開啟/收折 ITGeek AI 智能體側邊助理 (Cmd+L)"
+            >
+              <Sparkles className="w-3 h-3 text-purple-400" />
+              <span className="hidden sm:inline">AI 智能體</span>
+            </button>
+
+            <div className="w-[1px] h-3.5 bg-border"></div>
+
             {/* Compose Bar Toggle */}
             <button
               onClick={toggleComposeBar}

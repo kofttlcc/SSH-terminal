@@ -381,22 +381,33 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
 
   openHostTerminal: async (host) => {
     const { settings, promptTouchId, canTouchId, keys } = useVaultStore.getState();
-    const selectedKey = host.keyId ? keys.find((k) => k.id === host.keyId) : null;
-    const isKeyTouchId = host.touchIdForKey || selectedKey?.touchIdProtected;
+    
+    // In hybrid mode or yubikey mode, SSH service manages the adaptive touch/fingerprint sequence dynamically
+    if (host.authType !== 'hybrid' && host.authType !== 'yubikey') {
+      const selectedKey = host.keyId ? keys.find((k) => k.id === host.keyId) : null;
+      const isKeyTouchId = host.touchIdForKey || selectedKey?.touchIdProtected;
 
-    if (isKeyTouchId) {
-      const ok = await promptTouchId(`正在調用 SSH 私鑰「${selectedKey?.name || host.label}」認證伺服器，請按壓指紋`);
-      if (!ok) {
-        useAppStore.getState().addToast('warning', '私鑰 Touch ID 指紋認證未通過，已取消連線');
-        return;
+      if (isKeyTouchId) {
+        const ok = await promptTouchId(`正在調用 SSH 私鑰「${selectedKey?.name || host.label}」認證伺服器，請按壓指紋`);
+        if (!ok) {
+          useAppStore.getState().addToast('warning', '私鑰 Touch ID 指紋認證未通過，已取消連線');
+          return;
+        }
+      } else if ((host.requireTouchId || settings.touchIdForHosts) && canTouchId) {
+        const ok = await promptTouchId(`連線至「${host.label}」需要進行 Touch ID 指紋識別授權`);
+        if (!ok) {
+          useAppStore.getState().addToast('warning', 'Touch ID 指紋識別未通過，已取消連線');
+          return;
+        }
       }
-    } else if ((host.requireTouchId || settings.touchIdForHosts) && canTouchId) {
+    } else if ((host.requireTouchId || settings.touchIdForHosts) && canTouchId && host.authType !== 'hybrid') {
       const ok = await promptTouchId(`連線至「${host.label}」需要進行 Touch ID 指紋識別授權`);
       if (!ok) {
         useAppStore.getState().addToast('warning', 'Touch ID 指紋識別未通過，已取消連線');
         return;
       }
     }
+
     get().createTab(host.label, 'terminal', host, false);
     useAppStore.getState().setActiveView('terminal');
   },
@@ -408,22 +419,26 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
 
   openSftpTab: async (host) => {
     const { settings, promptTouchId, canTouchId, keys } = useVaultStore.getState();
-    const selectedKey = host.keyId ? keys.find((k) => k.id === host.keyId) : null;
-    const isKeyTouchId = host.touchIdForKey || selectedKey?.touchIdProtected;
 
-    if (isKeyTouchId) {
-      const ok = await promptTouchId(`正在調用 SSH 私鑰「${selectedKey?.name || host.label}」存取 SFTP，請按壓指紋`);
-      if (!ok) {
-        useAppStore.getState().addToast('warning', '私鑰 Touch ID 指紋認證未通過，已取消連線');
-        return;
-      }
-    } else if ((host.requireTouchId || settings.touchIdForHosts) && canTouchId) {
-      const ok = await promptTouchId(`開啟「${host.label}」SFTP 需要進行 Touch ID 指紋識別授權`);
-      if (!ok) {
-        useAppStore.getState().addToast('warning', 'Touch ID 指紋識別未通過，已取消連線');
-        return;
+    if (host.authType !== 'hybrid' && host.authType !== 'yubikey') {
+      const selectedKey = host.keyId ? keys.find((k) => k.id === host.keyId) : null;
+      const isKeyTouchId = host.touchIdForKey || selectedKey?.touchIdProtected;
+
+      if (isKeyTouchId) {
+        const ok = await promptTouchId(`正在調用 SSH 私鑰「${selectedKey?.name || host.label}」存取 SFTP，請按壓指紋`);
+        if (!ok) {
+          useAppStore.getState().addToast('warning', '私鑰 Touch ID 指紋認證未通過，已取消連線');
+          return;
+        }
+      } else if ((host.requireTouchId || settings.touchIdForHosts) && canTouchId) {
+        const ok = await promptTouchId(`開啟「${host.label}」SFTP 需要進行 Touch ID 指紋識別授權`);
+        if (!ok) {
+          useAppStore.getState().addToast('warning', 'Touch ID 指紋識別未通過，已取消連線');
+          return;
+        }
       }
     }
+
     get().createTab(`SFTP: ${host.label}`, 'sftp', host, false);
     useAppStore.getState().setActiveView('terminal');
   }

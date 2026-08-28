@@ -22,18 +22,30 @@ import {
   RefreshCw,
   Layers,
   ArrowRight,
-  Shield,
-  Cable,
-  Activity
+  Shield, 
+  Cable, 
+  Activity,
+  Sparkles,
+  Bot,
+  Eye,
+  EyeOff,
+  Globe,
+  SlidersHorizontal
 } from 'lucide-react';
 import { useVaultStore } from '../../stores/useVaultStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { TERMINAL_THEMES } from '../../utils/themePresets';
-import { TerminalThemeId } from '../../types';
+import { TerminalThemeId, AIProvider, AIModelConfig } from '../../types';
+import { PROVIDER_PRESETS, AIService } from '../../services/aiService';
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings, knownHosts, removeKnownHost, canTouchId, promptTouchId, loadVault } = useVaultStore();
   const { addToast } = useAppStore();
+
+  // AI Config States
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [testingAI, setTestingAI] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Export States
   const [exportPassword, setExportPassword] = useState('');
@@ -176,6 +188,44 @@ export const SettingsView: React.FC = () => {
     }
   };
 
+  const aiConfig: AIModelConfig = settings.aiConfig || {
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+    temperature: 0.3,
+    maxTokens: 4096,
+    enableTerminalContext: true,
+    dangerousCommandWarning: true
+  };
+
+  const handleUpdateAIConfig = (updates: Partial<AIModelConfig>) => {
+    updateSettings({
+      aiConfig: {
+        ...aiConfig,
+        ...updates
+      }
+    });
+    setAiTestResult(null);
+  };
+
+  const handleTestAIConnection = async () => {
+    setTestingAI(true);
+    setAiTestResult(null);
+    try {
+      const res = await AIService.testConnection(aiConfig);
+      setAiTestResult(res);
+      if (res.success) {
+        addToast('success', res.message);
+      } else {
+        addToast('error', res.message);
+      }
+    } catch (err: any) {
+      setAiTestResult({ success: false, message: err.message || '測試失敗' });
+      addToast('error', err.message || '測試失敗');
+    } finally {
+      setTestingAI(false);
+    }
+  };
+
   return (
     <div className="h-full w-full flex flex-col bg-background overflow-y-auto p-6 select-none no-scrollbar">
       {/* Header */}
@@ -185,11 +235,240 @@ export const SettingsView: React.FC = () => {
           <span>偏好設定與安全中心</span>
         </h1>
         <p className="text-xs text-mutedDark mt-0.5">
-          自定義 ITGeek 終端主題、字體排版、生物識別金庫與 macOS / Windows 跨平台加密備份
+          自定義 ITGeek 終端主題、字體排版、AI 智能體模型、生物識別金庫與跨平台加密備份
         </p>
       </div>
 
       <div className="space-y-8 max-w-4xl py-6 pb-16">
+        {/* Section 0: AI Agent & Multi-Provider LLM Settings */}
+        <div className="bg-card border border-purple-500/40 rounded-2xl p-5 space-y-5 shadow-sm shadow-purple-500/10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center shadow-glow">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                  <span>AI 伺服器終端智能體 (AI Agent & LLM Providers)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono font-medium border border-purple-500/30">
+                    Termius-Style AI
+                  </span>
+                </h2>
+                <p className="text-xs text-mutedDark">
+                  支援 OpenAI、Claude 3.7、Google Gemini、DeepSeek-R1、Ollama 本地大模型與自訂端點
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTestAIConnection}
+              disabled={testingAI}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-xs font-semibold transition-all shadow-sm active:scale-95 shadow-purple-600/20"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${testingAI ? 'animate-spin' : ''}`} />
+              <span>{testingAI ? '正在驗證連線...' : '測試模型連線'}</span>
+            </button>
+          </div>
+
+          {/* Test Feedback Banner */}
+          {aiTestResult && (
+            <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 animate-fade-in ${
+              aiTestResult.success 
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}>
+              {aiTestResult.success ? <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />}
+              <span>{aiTestResult.message}</span>
+            </div>
+          )}
+
+          {/* Provider Selection Tabs */}
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-slate-300">選擇 AI 模型服務商 (Provider)</label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+              {(Object.keys(PROVIDER_PRESETS) as AIProvider[]).map((provKey) => {
+                const prov = PROVIDER_PRESETS[provKey];
+                const isSelected = aiConfig.provider === provKey;
+                return (
+                  <button
+                    key={provKey}
+                    type="button"
+                    onClick={() => {
+                      const firstModel = prov.models[0]?.id || 'custom-model';
+                      handleUpdateAIConfig({
+                        provider: provKey,
+                        model: firstModel,
+                        baseUrl: prov.defaultBaseUrl
+                      });
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      isSelected
+                        ? 'bg-purple-500/20 border-purple-500 text-purple-200 shadow-sm shadow-purple-500/20 font-semibold'
+                        : 'bg-background border-border/60 hover:border-border text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="text-xs truncate">{prov.name.split(' ')[0]}</div>
+                    <div className="text-[10px] text-mutedDark font-mono mt-0.5 truncate">
+                      {provKey === 'ollama' ? 'Local' : provKey === 'custom' ? 'Custom' : 'Cloud'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* API Key & Endpoint Configuration */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* API Key (not required for Ollama) */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                API 密鑰 (API Key)
+                {aiConfig.provider === 'ollama' && <span className="text-mutedDark ml-1">(本地 Ollama 通常不需 Key)</span>}
+              </label>
+              <div className="relative">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={aiConfig.apiKey || ''}
+                  onChange={(e) => handleUpdateAIConfig({ apiKey: e.target.value })}
+                  placeholder={aiConfig.provider === 'ollama' ? '可留空 (預設免認證)' : 'sk-********************************'}
+                  className="w-full pl-3 pr-10 py-2 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 placeholder-mutedDark focus:outline-none font-mono transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-slate-200 transition-colors"
+                >
+                  {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Base URL (Endpoint) */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                API 服務位址 (Base URL)
+              </label>
+              <input
+                type="text"
+                value={aiConfig.baseUrl !== undefined ? aiConfig.baseUrl : (PROVIDER_PRESETS[aiConfig.provider]?.defaultBaseUrl || '')}
+                onChange={(e) => handleUpdateAIConfig({ baseUrl: e.target.value })}
+                placeholder={PROVIDER_PRESETS[aiConfig.provider]?.defaultBaseUrl || 'https://api.example.com/v1'}
+                className="w-full px-3 py-2 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 placeholder-mutedDark focus:outline-none font-mono transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Model Selector & Parameters */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Model Name */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">模型代號 (Model)</label>
+              {PROVIDER_PRESETS[aiConfig.provider]?.models.length > 0 && aiConfig.provider !== 'custom' ? (
+                <select
+                  value={aiConfig.model}
+                  onChange={(e) => handleUpdateAIConfig({ model: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 focus:outline-none font-mono"
+                >
+                  {PROVIDER_PRESETS[aiConfig.provider].models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.id})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={aiConfig.model}
+                  onChange={(e) => handleUpdateAIConfig({ model: e.target.value })}
+                  placeholder="請輸入模型代號 (例: deepseek-chat, gpt-4o)"
+                  className="w-full px-3 py-2 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 focus:outline-none font-mono"
+                />
+              )}
+            </div>
+
+            {/* Temperature Slider */}
+            <div>
+              <div className="flex justify-between mb-1">
+                <label className="text-xs font-medium text-slate-300">溫度 (Temperature: 建議 0.1~0.4)</label>
+                <span className="text-xs text-muted font-mono">{aiConfig.temperature ?? 0.3}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={aiConfig.temperature ?? 0.3}
+                onChange={(e) => handleUpdateAIConfig({ temperature: parseFloat(e.target.value) })}
+                className="w-full accent-purple-500"
+              />
+            </div>
+
+            {/* Max Output Tokens */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">最大輸出長度 (Max Tokens)</label>
+              <input
+                type="number"
+                min="256"
+                max="32768"
+                step="512"
+                value={aiConfig.maxTokens || 4096}
+                onChange={(e) => handleUpdateAIConfig({ maxTokens: parseInt(e.target.value) || 4096 })}
+                className="w-full px-3 py-2 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 focus:outline-none font-mono"
+              />
+            </div>
+          </div>
+
+          {/* AI Grounding & Safety Feature Switches */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-border/40">
+            <div className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/60">
+              <div>
+                <div className="text-xs font-semibold text-slate-200">終端畫面自動情境感知</div>
+                <div className="text-[11px] text-mutedDark">提問時自動附加終端最新輸出，以便診斷錯誤日誌</div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={aiConfig.enableTerminalContext !== false}
+                  onChange={(e) => handleUpdateAIConfig({ enableTerminalContext: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5 bg-card peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600 border border-border"></div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/60">
+              <div>
+                <div className="text-xs font-semibold text-slate-200">高危指令防呆警示阻攔</div>
+                <div className="text-[11px] text-mutedDark">執行 rm -rf /、dd、重啟等破壞性指令前跳出防護彈窗</div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={aiConfig.dangerousCommandWarning !== false}
+                  onChange={(e) => handleUpdateAIConfig({ dangerousCommandWarning: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5 bg-card peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600 border border-border"></div>
+              </label>
+            </div>
+          </div>
+
+          {/* Custom System Prompt */}
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1">
+              自訂系統提示詞附加條款 (Custom System Prompt)
+            </label>
+            <textarea
+              rows={2}
+              value={aiConfig.customSystemPrompt || ''}
+              onChange={(e) => handleUpdateAIConfig({ customSystemPrompt: e.target.value })}
+              placeholder="例如：我主要使用 Debian 伺服器，習慣使用 Podman 代替 Docker，請優先提供 podman 指令..."
+              className="w-full p-2.5 rounded-xl bg-background border border-border focus:border-purple-500 text-xs text-slate-100 placeholder-mutedDark focus:outline-none font-sans transition-colors resize-none no-scrollbar"
+            />
+          </div>
+        </div>
+
         {/* Section 1: Biometrics & Touch ID / Windows Hello */}
         <div className="bg-card border border-border/60 rounded-2xl p-5 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">

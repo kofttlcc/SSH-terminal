@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -29,8 +29,8 @@ const biometricsService = new BiometricsService();
 const yubikeyService = new YubikeyService();
 const serialService = new SerialService();
 const agentService = new AgentService(vaultService, biometricsService);
-const sshService = new SSHService(knownHostsService, vaultService, agentService, yubikeyService);
-const sftpService = new SftpService(vaultService);
+const sshService = new SSHService(knownHostsService, vaultService, agentService, yubikeyService, biometricsService);
+const sftpService = new SftpService(vaultService, yubikeyService, biometricsService);
 const localPtyService = new LocalPtyService();
 const tunnelService = new TunnelService();
 
@@ -301,6 +301,43 @@ ipcMain.handle('sftp:rename', async (_, { sessionId, srcPath, dstPath }) => {
 ipcMain.handle('sftp:disconnect', async (_, { sessionId }) => {
   await sftpService.disconnect(sessionId);
   return { success: true };
+});
+
+ipcMain.handle('sftp:deleteLocal', async (_, { localPath, isDirectory }) => {
+  try {
+    if (fs.existsSync(localPath)) {
+      if (isDirectory) {
+        fs.rmSync(localPath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(localPath);
+      }
+      return { success: true };
+    }
+    return { success: false, error: '檔案或資料夾不存在' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('sftp:createLocalFolder', async (_, { localPath }) => {
+  try {
+    fs.mkdirSync(localPath, { recursive: true });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('sftp:revealInFolder', async (_, { localPath }) => {
+  try {
+    if (fs.existsSync(localPath)) {
+      shell.showItemInFolder(localPath);
+      return { success: true };
+    }
+    return { success: false, error: '檔案或目錄不存在' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 });
 
 // ==================== Vault IPC Handlers ====================

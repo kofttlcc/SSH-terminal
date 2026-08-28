@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTerminalStore } from '../../stores/useTerminalStore';
+import { useAIStore } from '../../stores/useAIStore';
 import { TerminalPane } from './TerminalPane';
 import { ComposeBar } from './ComposeBar';
 import { SyncTargetModal } from './SyncTargetModal';
+import { AIAssistantDrawer } from '../ai/AIAssistantDrawer';
+import { AIInlineAssistModal } from '../ai/AIInlineAssistModal';
+import { DangerousCommandModal } from '../ai/DangerousCommandModal';
 import { TerminalTab } from '../../types';
 import { Radio, Zap, X, ShieldAlert, Target } from 'lucide-react';
 
@@ -19,6 +23,38 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({ tab }) => 
     setTargetPickerModalOpen,
     syncTargetScope
   } = useTerminalStore();
+
+  const { toggleDrawer, setInlineAssistOpen } = useAIStore();
+
+  const activePane = tab.panes.find((p) => p.paneId === tab.activePaneId) || tab.panes[0];
+  const host = activePane?.host;
+  const isLocal = activePane?.isLocal;
+
+  // Global Keyboard Shortcuts for AI Agent in Terminal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+
+      // Cmd+L or Ctrl+L: Toggle AI Assistant Drawer
+      if (isCmdOrCtrl && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleDrawer();
+        return;
+      }
+
+      // Cmd+K or Ctrl+K (when shift is held or inline prompt): Quick AI Assist
+      if (isCmdOrCtrl && e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        e.stopPropagation();
+        setInlineAssistOpen(true);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [toggleDrawer, setInlineAssistOpen]);
 
   const targetCount = React.useMemo(() => {
     if (!isGlobalKeystrokeSync) return 0;
@@ -96,7 +132,7 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({ tab }) => 
 
   return (
     <div className="h-full w-full flex flex-col relative overflow-hidden bg-background">
-      {/* Global Realtime Keystroke Sync Warning Banner (Xshell Send Key Input Warning) */}
+      {/* Global Realtime Keystroke Sync Warning Banner */}
       {isGlobalKeystrokeSync && (
         <div className="bg-amber-500/15 border-b border-amber-500/40 px-4 py-1.5 flex items-center justify-between text-xs z-10 flex-shrink-0 animate-fade-in">
           <div className="flex items-center gap-2 text-amber-300">
@@ -129,11 +165,30 @@ export const TerminalContainer: React.FC<TerminalContainerProps> = ({ tab }) => 
         </div>
       )}
 
-      {/* Main Panes View Area */}
-      <div className="flex-1 relative min-h-0 overflow-hidden">{renderPanes()}</div>
+      {/* Main Panes View Area + AI Assistant Drawer */}
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+        <div className="flex-1 relative min-h-0 overflow-hidden">
+          {renderPanes()}
+        </div>
+
+        {/* Embedded AI Assistant Drawer */}
+        <AIAssistantDrawer
+          host={host}
+          isLocal={isLocal}
+          activeSessionId={activePane?.sessionId}
+        />
+      </div>
 
       {/* Xshell Compose Bar (撰寫欄) */}
       <ComposeBar />
+
+      {/* Inline Assist Popup & Dangerous Command Guard Modals */}
+      <AIInlineAssistModal
+        host={host}
+        isLocal={isLocal}
+        activeSessionId={activePane?.sessionId}
+      />
+      <DangerousCommandModal />
     </div>
   );
 };
