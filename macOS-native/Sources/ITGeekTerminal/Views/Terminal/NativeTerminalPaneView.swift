@@ -39,6 +39,9 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         context.coordinator.appState = appState
         context.coordinator.loadTerminalHTML(webView: webView)
 
+        // Start session and prompt Touch ID immediately without delay!
+        context.coordinator.startSession(appState: appState, pane: pane)
+
         return webView
     }
 
@@ -64,6 +67,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         weak var appState: AppState?
         private var isTerminalReady: Bool = false
         private var pendingData: [Data] = []
+        private var sessionStarted: Bool = false
 
         init(_ parent: NativeTerminalPaneView) {
             self.parent = parent
@@ -104,13 +108,14 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
 
             if message.name == "terminalReady" {
                 self.isTerminalReady = true
-                self.startSession(appState: appState, pane: parent.pane)
 
                 // Flush pending buffered data
                 for data in pendingData {
                     writeToXterm(data: data)
                 }
                 pendingData.removeAll()
+
+                webView.evaluateJavaScript("if (window.fitTerminal) { window.fitTerminal(); window.focusTerminal(); }", completionHandler: nil)
             } else if message.name == "terminalData" {
                 if let str = message.body as? String, let data = str.data(using: .utf8) {
                     appState.sendDataToSession(sessionId: sid, data: data)
@@ -125,6 +130,9 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         }
 
         func startSession(appState: AppState, pane: TerminalPaneState) {
+            guard !sessionStarted else { return }
+            sessionStarted = true
+
             let sid = pane.sessionId ?? pane.paneId
 
             if pane.isLocal {
@@ -153,17 +161,10 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
 
                 let hostKey = appState.vault.keys.first(where: { $0.id == host.keyId })
                 let fallbackKey = appState.vault.keys.first(where: { $0.id == host.fallbackKeyId })
-                let yubiKey = appState.vault.keys.first(where: { $0.id == host.yubikeyKeyId })
 
+                // Touch ID requirement
                 let keyRequiresTouchId = (hostKey?.touchIdProtected == true) ||
-                                         (fallbackKey?.touchIdProtected == true) ||
-                                         (yubiKey?.touchIdProtected == true)
-
-                let isYubiKeyAuth = (host.authType == .yubikey) ||
-                                    (host.authType == .hybrid) ||
-                                    (host.yubikeyKeyId != nil) ||
-                                    (hostKey?.storageType == "yubikey_fido2") ||
-                                    (yubiKey?.storageType == "yubikey_fido2")
+                                         (fallbackKey?.touchIdProtected == true)
 
                 let needsTouchId = (host.requireTouchId == true) ||
                                    (appState.vault.settings.touchIdForHosts == true) ||
@@ -181,9 +182,24 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     self?.writePlainText("\r\n\u{001B}[31m[SSH 連線錯誤]: \(err)\u{001B}[0m\r\n")
                 }
 
-                if isYubiKeyAuth {
-                    let devs = YubikeyService.shared.listDevices()
-                    let serial = devs.first?.serial ?? yubiKey?.yubikeySerial ?? "YK-17891328"
+                if needsTouchId {
+                    let keyDisplayName = hostKey?.name ?? fallbackKey?.name ?? host.label
+                    self.writePlainText("\u{001B}[35m[Touch ID 指紋安全授權]: 正在調用「\(keyDisplayName)」私鑰，請在彈出的系統指紋對話框按壓 Touch ID...\u{001B}[0m\r\n")
+                    Task {
+                        let res = await BiometricsService.shared.promptTouchID(
+                            reason: "調用「\(keyDisplayName)」私鑰認證伺服器「\(host.label)」，請驗證 Touch ID 指紋"
+                        )
+                        if !res.success {
+                            self.writePlainText("\r\n\u{001B}[31m[Touch ID 認證未通過]: \(res.error ?? "指紋識別未授權或已取消，連線已終止。")\u{001B}[0m\r\n")
+                            appState.sshSessions.removeValue(forKey: sid)
+                            return
+                        }
+                        self.writePlainText("\u{001B}[32m[Touch ID 驗證成功]: 指紋授權通過，正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\u{001B}[0m\r\n")
+                        _ = ssh.connect()
+                    }
+                } else if host.authType == .yubikey {
+                    let yubiKey = appState.vault.keys.first(where: { $0.id == host.yubikeyKeyId })
+                    let serial = yubiKey?.yubikeySerial ?? "YK-17891328"
                     let keyDisplayName = yubiKey?.name ?? hostKey?.name ?? "YubiKey 5 FIDO2/PIV"
 
                     self.writePlainText("\u{001B}[33m[YubiKey 硬體認證]: 正在調用 YubiKey 5 實體硬體金鑰「\(keyDisplayName)」，請觸碰設備金屬環...\u{001B}[0m\r\n")
@@ -200,21 +216,6 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                             appState.sshSessions.removeValue(forKey: sid)
                         }
                     )
-                } else if needsTouchId {
-                    let keyDisplayName = hostKey?.name ?? fallbackKey?.name ?? host.label
-                    self.writePlainText("\u{001B}[35m[Touch ID 安全驗證]: 正在調用「\(keyDisplayName)」私鑰，請按壓指紋授權...\u{001B}[0m\r\n")
-                    Task {
-                        let res = await BiometricsService.shared.promptTouchID(
-                            reason: "調用「\(keyDisplayName)」私鑰認證伺服器「\(host.label)」，請驗證 Touch ID 指紋"
-                        )
-                        if !res.success {
-                            self.writePlainText("\r\n\u{001B}[31m[Touch ID 認證未通過]: \(res.error ?? "指紋識別未授權或已取消，連線已終止。")\u{001B}[0m\r\n")
-                            appState.sshSessions.removeValue(forKey: sid)
-                            return
-                        }
-                        self.writePlainText("\u{001B}[32m[Touch ID 驗證成功]: 指紋授權通過，正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\u{001B}[0m\r\n")
-                        _ = ssh.connect()
-                    }
                 } else {
                     self.writePlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n")
                     _ = ssh.connect()
