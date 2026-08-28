@@ -7,6 +7,7 @@ public class SSHSession {
     private var masterFd: Int32 = -1
     private var process: Process?
     private var readSource: DispatchSourceRead?
+    private var tempKeyFilePath: String?
     public var onDataReceived: ((Data) -> Void)?
     public var onClosed: (() -> Void)?
     public var onError: ((String) -> Void)?
@@ -40,8 +41,39 @@ public class SSHSession {
             "-o", "ServerAliveCountMax=3"
         ]
 
+        if host.agentForward == true {
+            sshArgs.append(contentsOf: ["-A", "-o", "ForwardAgent=yes"])
+        }
+
+        // Handle Jump Host
         if let jumpHostId = host.jumpHostId, !jumpHostId.isEmpty {
-            sshArgs.append(contentsOf: ["-J", jumpHostId])
+            let vault = VaultStorageService.shared.loadVault()
+            if let jump = vault.hosts.first(where: { $0.id == jumpHostId }) {
+                sshArgs.append(contentsOf: ["-J", "\(jump.username)@\(jump.hostname):\(jump.port)"])
+            } else {
+                sshArgs.append(contentsOf: ["-J", jumpHostId])
+            }
+        }
+
+        // Handle SSH Key / YubiKey Identity
+        if let keyPath = resolveIdentityKey() {
+            sshArgs.append(contentsOf: ["-i", keyPath])
+            self.tempKeyFilePath = keyPath
+        }
+
+        // Check for YubiKey PKCS11 Provider if yubikey auth selected
+        if host.authType == .yubikey || host.yubikeyKeyId != nil {
+            let pkcs11Paths = [
+                "/opt/homebrew/lib/libykcs11.dylib",
+                "/usr/local/lib/libykcs11.dylib",
+                "/Library/OpenSC/lib/opensc-pkcs11.so"
+            ]
+            for p in pkcs11Paths {
+                if FileManager.default.fileExists(atPath: p) {
+                    sshArgs.append(contentsOf: ["-o", "PKCS11Provider=\(p)"])
+                    break
+                }
+            }
         }
 
         let destination = "\(host.username)@\(host.hostname)"
@@ -59,6 +91,7 @@ public class SSHSession {
         proc.standardError = slaveHandle
 
         proc.terminationHandler = { [weak self] _ in
+            self?.cleanupTempKey()
             DispatchQueue.main.async {
                 self?.onClosed?()
             }
@@ -69,6 +102,7 @@ public class SSHSession {
             self.process = proc
         } catch {
             close(master)
+            cleanupTempKey()
             self.onError?("啟動 SSH 進程失敗: \(error.localizedDescription)")
             return false
         }
@@ -90,6 +124,7 @@ public class SSHSession {
                 }
             } else if bytesRead == 0 {
                 source.cancel()
+                self.cleanupTempKey()
                 DispatchQueue.main.async {
                     self.onClosed?()
                 }
@@ -102,11 +137,71 @@ public class SSHSession {
                 close(self.masterFd)
                 self.masterFd = -1
             }
+            self.cleanupTempKey()
         }
 
         source.resume()
         self.readSource = source
         return true
+    }
+
+    private func resolveIdentityKey() -> String? {
+        var rawKeyString: String? = host.privateKey
+        let targetKeyId = host.yubikeyKeyId ?? host.keyId ?? host.fallbackKeyId
+
+        if (rawKeyString == nil || rawKeyString?.isEmpty == true), let keyId = targetKeyId {
+            let vault = VaultStorageService.shared.loadVault()
+            if let found = vault.keys.first(where: { $0.id == keyId }) {
+                rawKeyString = found.privateKey
+            }
+        }
+
+        guard let rawKey = rawKeyString, !rawKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        let finalPem = extractRawKey(rawKey)
+        guard !finalPem.isEmpty else { return nil }
+
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("itgeek_keys", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+
+        let keyFileName = "key_\(sessionId)_\(UUID().uuidString.prefix(8))"
+        let keyFileURL = tmpDir.appendingPathComponent(keyFileName)
+
+        do {
+            try finalPem.write(to: keyFileURL, atomically: true, encoding: .utf8)
+            // OpenSSH requires strict 0600 file permissions for identity files
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keyFileURL.path)
+            return keyFileURL.path
+        } catch {
+            print("Failed to write temporary identity key file: \(error)")
+            return nil
+        }
+    }
+
+    private func extractRawKey(_ key: String) -> String {
+        if key.contains("-----BEGIN YUBIKEY PIV CONTAINER-----") {
+            if let regex = try? NSRegularExpression(pattern: "Payload:\\s*([A-Za-z0-9+/=\\r\\n]+)", options: []) {
+                let ns = key as NSString
+                if let match = regex.firstMatch(in: key, options: [], range: NSRange(location: 0, length: ns.length)),
+                   match.numberOfRanges > 1 {
+                    let payloadBase64 = ns.substring(with: match.range(at: 1)).replacingOccurrences(of: "\n", with: "").replacingOccurrences(of: "\r", with: "").trimmingCharacters(in: .whitespaces)
+                    if let data = Data(base64Encoded: payloadBase64),
+                       let decoded = String(data: data, encoding: .utf8) {
+                        return decoded
+                    }
+                }
+            }
+        }
+        return key
+    }
+
+    private func cleanupTempKey() {
+        if let path = tempKeyFilePath {
+            try? FileManager.default.removeItem(atPath: path)
+            tempKeyFilePath = nil
+        }
     }
 
     public func writeData(_ data: Data) {
@@ -126,6 +221,7 @@ public class SSHSession {
     public func closeSession() {
         readSource?.cancel()
         readSource = nil
+        cleanupTempKey()
         if let proc = process, proc.isRunning {
             proc.terminate()
             process = nil
