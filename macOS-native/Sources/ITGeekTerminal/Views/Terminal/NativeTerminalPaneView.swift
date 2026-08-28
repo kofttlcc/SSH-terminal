@@ -234,6 +234,15 @@ public class CustomTerminalTextView: NSTextView {
 
     public override var acceptsFirstResponder: Bool { true }
 
+    public override func resignFirstResponder() -> Bool {
+        return true
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        self.window?.makeFirstResponder(self)
+    }
+
     public override func keyDown(with event: NSEvent) {
         guard let chars = event.characters, !chars.isEmpty else {
             super.keyDown(with: event)

@@ -95,16 +95,18 @@ public struct AIAssistantDrawerView: View {
             // Input Area
             VStack(spacing: 8) {
                 HStack {
-                    TextField("用自然語言描述需求 (Enter 發送)...", text: $appState.aiDrawerInput, axis: .vertical)
-                        .lineLimit(1...4)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .padding(8)
-                        .background(Color(red: 20/255, green: 22/255, blue: 34/255))
-                        .cornerRadius(8)
-                        .onSubmit {
+                    NativeMacOSTextField(
+                        text: $appState.aiDrawerInput,
+                        placeholder: "用自然語言描述需求 (Enter 發送)...",
+                        fontSize: 12,
+                        isMonospaced: false,
+                        onSubmit: {
                             sendInput()
                         }
+                    )
+                    .padding(8)
+                    .background(Color(red: 20/255, green: 22/255, blue: 34/255))
+                    .cornerRadius(8)
 
                     Button(action: {
                         sendInput()

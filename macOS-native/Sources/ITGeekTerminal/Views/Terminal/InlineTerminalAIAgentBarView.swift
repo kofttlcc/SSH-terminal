@@ -25,17 +25,19 @@ public struct InlineTerminalAIAgentBarView: View {
                 .cornerRadius(6)
 
                 // Natural Language Command Input
-                TextField("輸入指令或運維需求（例：排查 80 端口佔用並重啟、查看記憶體並清理暫存）...", text: $appState.inlineAIAgentInput)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color(red: 20/255, green: 22/255, blue: 34/255))
-                    .cornerRadius(6)
-                    .onSubmit {
+                NativeMacOSTextField(
+                    text: $appState.inlineAIAgentInput,
+                    placeholder: "輸入指令或運維需求（例：排查 80 端口佔用並重啟、查看記憶體並清理暫存）...",
+                    fontSize: 12,
+                    isMonospaced: false,
+                    onSubmit: {
                         executeAgentCommand()
                     }
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(red: 20/255, green: 22/255, blue: 34/255))
+                .cornerRadius(6)
 
                 // Auto-Run Mode Toggle Pill
                 Button(action: {

@@ -18,17 +18,19 @@ public struct ComposeBarView: View {
             .background(Color.orange.opacity(0.15))
             .cornerRadius(6)
 
-            TextField("在此輸入指令同步發送至全部終端會話（Enter 發送）...", text: $appState.composeCommand)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color(red: 20/255, green: 22/255, blue: 34/255))
-                .cornerRadius(6)
-                .onSubmit {
+            NativeMacOSTextField(
+                text: $appState.composeCommand,
+                placeholder: "在此輸入指令同步發送至全部終端會話（Enter 發送）...",
+                fontSize: 12,
+                isMonospaced: true,
+                onSubmit: {
                     sendCommand()
                 }
+            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color(red: 20/255, green: 22/255, blue: 34/255))
+            .cornerRadius(6)
 
             Button(action: sendCommand) {
                 HStack(spacing: 4) {
