@@ -96,4 +96,27 @@ public struct AIModelConfig: Codable, Hashable {
         self.dangerousCommandWarning = dangerousCommandWarning
         self.customSystemPrompt = customSystemPrompt
     }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, apiKey, baseUrl, model, temperature, maxTokens
+        case enableTerminalContext, dangerousCommandWarning, customSystemPrompt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let raw = try? container.decodeIfPresent(String.self, forKey: .provider),
+           let p = AIProvider(rawValue: raw) {
+            self.provider = p
+        } else {
+            self.provider = .deepseek
+        }
+        self.apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey)
+        self.baseUrl = try container.decodeIfPresent(String.self, forKey: .baseUrl)
+        self.model = try container.decodeIfPresent(String.self, forKey: .model) ?? "deepseek-chat"
+        self.temperature = try container.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.3
+        self.maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens) ?? 4096
+        self.enableTerminalContext = try container.decodeIfPresent(Bool.self, forKey: .enableTerminalContext) ?? true
+        self.dangerousCommandWarning = try container.decodeIfPresent(Bool.self, forKey: .dangerousCommandWarning) ?? true
+        self.customSystemPrompt = try container.decodeIfPresent(String.self, forKey: .customSystemPrompt)
+    }
 }

@@ -17,17 +17,26 @@ public class VaultStorageService {
     }
 
     public func loadVault() -> AppVaultData {
+        // 1. Try loading from native vault.json
         if fileManager.fileExists(atPath: vaultFileURL.path) {
             do {
                 let data = try Data(contentsOf: vaultFileURL)
                 let decoded = try JSONDecoder().decode(AppVaultData.self, from: data)
-                return decoded
+                if !decoded.hosts.isEmpty && !decoded.hosts.allSatisfy({ $0.id.hasPrefix("host-demo") }) {
+                    return decoded
+                }
             } catch {
-                print("Failed to decode vault.json: \(error)")
+                print("Failed to decode native vault.json: \(error)")
             }
         }
 
-        // Return default seeded data
+        // 2. Check and migrate from legacy Electron storage if available
+        if let migrated = attemptLegacyMigration() {
+            saveVault(migrated)
+            return migrated
+        }
+
+        // 3. Return default seeded data
         let defaultData = createDefaultVault()
         saveVault(defaultData)
         return defaultData
@@ -42,6 +51,34 @@ public class VaultStorageService {
         } catch {
             print("Failed to save vault: \(error)")
         }
+    }
+
+    public func attemptLegacyMigration() -> AppVaultData? {
+        let urls = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        guard let base = urls.first else { return nil }
+
+        let legacyPaths = [
+            base.appendingPathComponent("itgeek-ssh").appendingPathComponent("vault_store.json"),
+            base.appendingPathComponent("termius-ssh-terminal").appendingPathComponent("vault_store.json"),
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".itgeek-ssh").appendingPathComponent("vault_store.json")
+        ]
+
+        for legacyFile in legacyPaths {
+            if fileManager.fileExists(atPath: legacyFile.path) {
+                do {
+                    let data = try Data(contentsOf: legacyFile)
+                    let decoded = try JSONDecoder().decode(AppVaultData.self, from: data)
+                    if !decoded.hosts.isEmpty {
+                        print("Successfully migrated \(decoded.hosts.count) hosts from \(legacyFile.path)")
+                        return decoded
+                    }
+                } catch {
+                    print("Failed to decode legacy vault from \(legacyFile.path): \(error)")
+                }
+            }
+        }
+
+        return nil
     }
 
     private func createDefaultVault() -> AppVaultData {
@@ -66,45 +103,12 @@ public class VaultStorageService {
                 command: "uptime && free -h 2>/dev/null || top -l 1 | head -n 10 && df -h",
                 tags: ["系統", "Linux", "診斷"],
                 description: "一鍵檢查伺服器負載、記憶體與磁碟空間"
-            ),
-            Snippet(
-                id: "snip-find-port",
-                title: "查詢端口佔用進程",
-                command: "sudo lsof -i :{{port}} || sudo netstat -tlpn | grep :{{port}}",
-                tags: ["網路", "除錯"],
-                description: "檢查指定端口由哪個進程佔用",
-                variables: ["port"]
-            )
-        ]
-
-        let hosts = [
-            HostItem(
-                id: "host-demo-1",
-                label: "AWS EC2 核心應用節點",
-                hostname: "13.230.142.88",
-                port: 22,
-                username: "ubuntu",
-                authType: .password,
-                group: "prod",
-                color: "#ef4444",
-                osType: "ubuntu"
-            ),
-            HostItem(
-                id: "host-demo-2",
-                label: "Aliyun 開發測試伺服器",
-                hostname: "47.96.23.112",
-                port: 22,
-                username: "root",
-                authType: .password,
-                group: "dev",
-                color: "#10b981",
-                osType: "centos"
             )
         ]
 
         return AppVaultData(
             version: "1.0.0",
-            hosts: hosts,
+            hosts: [],
             groups: groups,
             snippets: snippets,
             keys: [],
