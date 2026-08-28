@@ -17,16 +17,22 @@ public struct MainView: View {
 
                 // Content View
                 VStack(spacing: 0) {
-                    // Top Horizontal Tab Bar (when in terminal view or tabs exist)
+                    // Top Horizontal Tab Bar (when tabs exist)
                     if !appState.tabs.isEmpty {
                         TopTabBarView(appState: appState)
                     }
 
-                    // Content Switcher
+                    // Content Switcher with persistent Terminal Container
                     ZStack {
-                        if appState.activeView == "terminal", let activeTab = appState.tabs.first(where: { $0.id == appState.activeTabId }) {
+                        // Persistently mounted Terminal Container
+                        if let activeTab = appState.tabs.first(where: { $0.id == appState.activeTabId }) {
                             TerminalContainerView(appState: appState, tab: activeTab)
-                        } else if appState.activeView == "hosts" {
+                                .opacity(appState.activeView == "terminal" ? 1 : 0)
+                                .allowsHitTesting(appState.activeView == "terminal")
+                        }
+
+                        // Other Views
+                        if appState.activeView == "hosts" {
                             HostListView(appState: appState)
                         } else if appState.activeView == "snippets" {
                             SnippetListView(appState: appState)
@@ -34,8 +40,6 @@ public struct MainView: View {
                             KeyListView(appState: appState)
                         } else if appState.activeView == "settings" {
                             SettingsView(appState: appState)
-                        } else {
-                            HostListView(appState: appState)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -62,6 +66,9 @@ public struct MainView: View {
 
             // Dangerous Command Warning Modal
             DangerousCommandModalView(appState: appState)
+
+            // YubiKey Hardware Touch Modal
+            YubiKeyTouchModalView(appState: appState)
 
             // Global Floating Toast Overlay
             ToastOverlayView(appState: appState)

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import AppKit
 
 @MainActor
 public class AppState: ObservableObject {
@@ -23,15 +24,17 @@ public class AppState: ObservableObject {
     @Published public var isAIStreaming: Bool = false
     @Published public var pendingDangerousCommand: ExtractedCommand? = nil
 
-    // Active PTY & SSH Session objects map
+    // Active PTY & SSH Session objects & text buffer map
     public var localSessions: [String: LocalPtySession] = [:]
     public var sshSessions: [String: SSHSession] = [:]
+    public var terminalStorages: [String: NSTextStorage] = [:]
 
     // UI Overlays & Modals
     @Published public var quickConnectOpen: Bool = false
     @Published public var hostEditModalOpen: Bool = false
     @Published public var editingHost: HostItem? = nil
     @Published public var toasts: [ToastItem] = []
+    @Published public var yubikeyTouchPrompt: YubiKeyTouchPromptData? = nil
 
     // View UI States (ObservableObject-backed)
     @Published public var aiDrawerInput: String = ""
@@ -117,6 +120,7 @@ public class AppState: ObservableObject {
                     localSessions.removeValue(forKey: sid)
                     sshSessions[sid]?.closeSession()
                     sshSessions.removeValue(forKey: sid)
+                    terminalStorages.removeValue(forKey: sid)
                 }
             }
         }
@@ -131,17 +135,57 @@ public class AppState: ObservableObject {
     }
 
     public func openHostTerminal(host: HostItem) {
-        if host.requireTouchId == true {
-            Task {
-                let res = await BiometricsService.shared.promptTouchID(reason: "連線至「\(host.label)」需要進行 Touch ID 指紋授權")
-                if !res.success {
-                    self.addToast("warning", "Touch ID 指紋識別未通過，已取消連線")
-                    return
+        let targetKeyId = host.yubikeyKeyId ?? host.keyId ?? host.fallbackKeyId
+        let targetKey = vault.keys.first(where: { $0.id == targetKeyId })
+
+        let isYubiKeyAuth = (host.authType == .yubikey) ||
+                            (host.authType == .hybrid) ||
+                            (host.yubikeyKeyId != nil) ||
+                            (targetKey?.storageType == "yubikey_fido2") ||
+                            (targetKey?.storageType == "yubikey_piv")
+
+        let needsTouchId = (host.requireTouchId == true) ||
+                           (vault.settings.touchIdForHosts == true) ||
+                           (host.touchIdForKey == true) ||
+                           (targetKey?.touchIdProtected == true)
+
+        let proceedConnection: () -> Void = { [weak self] in
+            guard let self = self else { return }
+            if needsTouchId {
+                Task {
+                    let keyName = targetKey?.name ?? host.label
+                    let res = await BiometricsService.shared.promptTouchID(
+                        reason: "正在調用「\(keyName)」私鑰認證主機「\(host.label)」，請驗證 Touch ID 指紋"
+                    )
+                    if !res.success {
+                        self.addToast("warning", "Touch ID 指紋識別未通過或已取消，連線已終止")
+                        return
+                    }
+                    _ = self.createTab(title: host.label, type: "terminal", host: host, isLocal: false)
                 }
+            } else {
                 _ = self.createTab(title: host.label, type: "terminal", host: host, isLocal: false)
             }
+        }
+
+        if isYubiKeyAuth {
+            let devs = YubikeyService.shared.listDevices()
+            let serial = devs.first?.serial ?? targetKey?.yubikeySerial ?? "YK-17891328"
+            let keyDisplayName = targetKey?.name ?? "YubiKey 5 FIDO2/PIV"
+
+            self.yubikeyTouchPrompt = YubiKeyTouchPromptData(
+                hostLabel: host.label,
+                keyName: keyDisplayName,
+                serial: serial,
+                onConfirm: {
+                    proceedConnection()
+                },
+                onCancel: { [weak self] in
+                    self?.addToast("info", "已取消 YubiKey 認證連線")
+                }
+            )
         } else {
-            _ = self.createTab(title: host.label, type: "terminal", host: host, isLocal: false)
+            proceedConnection()
         }
     }
 
@@ -152,7 +196,6 @@ public class AppState: ObservableObject {
     // MARK: - Keystroke Dispatcher
     public func sendDataToSession(sessionId: String, data: Data) {
         if isGlobalKeystrokeSync {
-            // Broadcast to all active sessions!
             for (_, pty) in localSessions {
                 pty.writeData(data)
             }

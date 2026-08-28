@@ -15,6 +15,8 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
+        let sid = pane.sessionId ?? pane.paneId
+
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
@@ -24,7 +26,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
 
         let textView = CustomTerminalTextView()
         textView.appState = appState
-        textView.sessionId = pane.sessionId ?? pane.paneId
+        textView.sessionId = sid
         textView.backgroundColor = NSColor(red: 9/255.0, green: 10/255.0, blue: 15/255.0, alpha: 1.0)
         textView.textColor = NSColor(red: 226/255.0, green: 232/255.0, blue: 240/255.0, alpha: 1.0)
         textView.font = NSFont.monospacedSystemFont(ofSize: 13.0, weight: .regular)
@@ -35,17 +37,33 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
 
+        // Attach or restore persistent NSTextStorage
+        if let existingStorage = appState.terminalStorages[sid] {
+            textView.layoutManager?.replaceTextStorage(existingStorage)
+        } else {
+            let storage = NSTextStorage()
+            appState.terminalStorages[sid] = storage
+            textView.layoutManager?.replaceTextStorage(storage)
+        }
+
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        context.coordinator.appState = appState
 
         context.coordinator.startSession(appState: appState, pane: pane)
         return scrollView
     }
 
     public func updateNSView(_ nsView: NSScrollView, context: Context) {
+        let sid = pane.sessionId ?? pane.paneId
         if let textView = nsView.documentView as? CustomTerminalTextView {
             textView.appState = appState
-            textView.sessionId = pane.sessionId ?? pane.paneId
+            textView.sessionId = sid
+
+            if let existingStorage = appState.terminalStorages[sid], textView.textStorage !== existingStorage {
+                textView.layoutManager?.replaceTextStorage(existingStorage)
+            }
+
             if isActive && textView.window?.firstResponder != textView {
                 textView.window?.makeFirstResponder(textView)
             }
@@ -60,6 +78,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
     public class Coordinator: NSObject {
         var parent: NativeTerminalPaneView
         weak var textView: CustomTerminalTextView?
+        weak var appState: AppState?
 
         init(_ parent: NativeTerminalPaneView) {
             self.parent = parent
@@ -69,33 +88,51 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
             let sid = pane.sessionId ?? pane.paneId
 
             if pane.isLocal {
+                // If local PTY session is already running, simply re-bind listener!
+                if let existingPty = appState.localSessions[sid] {
+                    existingPty.onDataReceived = { [weak self] data in
+                        self?.appendRawData(data, sessionId: sid)
+                    }
+                    return
+                }
+
                 let pty = LocalPtySession(sessionId: sid)
                 appState.localSessions[sid] = pty
 
                 pty.onDataReceived = { [weak self] data in
-                    self?.appendRawData(data)
+                    self?.appendRawData(data, sessionId: sid)
                 }
 
                 _ = pty.start()
             } else if let host = pane.host {
+                // If SSH session is already running, simply re-bind listener!
+                if let existingSSH = appState.sshSessions[sid] {
+                    existingSSH.onDataReceived = { [weak self] data in
+                        self?.appendRawData(data, sessionId: sid)
+                    }
+                    return
+                }
+
                 let ssh = SSHSession(sessionId: sid, host: host)
                 appState.sshSessions[sid] = ssh
 
                 ssh.onDataReceived = { [weak self] data in
-                    self?.appendRawData(data)
+                    self?.appendRawData(data, sessionId: sid)
                 }
 
                 ssh.onError = { [weak self] err in
-                    self?.appendPlainText("\r\n[SSH 錯誤]: \(err)\r\n")
+                    self?.appendPlainText("\r\n[SSH 錯誤]: \(err)\r\n", sessionId: sid)
                 }
 
-                self.appendPlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n")
+                self.appendPlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n", sessionId: sid)
                 _ = ssh.connect()
             }
         }
 
-        func appendPlainText(_ text: String) {
-            guard let textView = textView else { return }
+        func appendPlainText(_ text: String, sessionId: String) {
+            let storage = appState?.terminalStorages[sessionId] ?? textView?.textStorage
+            guard let textStorage = storage else { return }
+
             let attr = NSAttributedString(
                 string: text,
                 attributes: [
@@ -103,14 +140,15 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     .foregroundColor: NSColor(red: 56/255.0, green: 189/255.0, blue: 248/255.0, alpha: 1.0)
                 ]
             )
-            textView.textStorage?.append(attr)
-            textView.scrollToEndOfDocument(nil)
+            textStorage.append(attr)
+            textView?.scrollToEndOfDocument(nil)
         }
 
-        func appendRawData(_ data: Data) {
-            guard let textView = textView else { return }
+        func appendRawData(_ data: Data, sessionId: String) {
+            let storage = appState?.terminalStorages[sessionId] ?? textView?.textStorage
+            guard let textStorage = storage else { return }
+
             if let string = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) {
-                // Strip/clean ANSI escape sequences for text storage
                 let clean = cleanAnsi(string)
                 let attr = NSAttributedString(
                     string: clean,
@@ -119,13 +157,12 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                         .foregroundColor: NSColor(red: 226/255.0, green: 232/255.0, blue: 240/255.0, alpha: 1.0)
                     ]
                 )
-                textView.textStorage?.append(attr)
-                textView.scrollToEndOfDocument(nil)
+                textStorage.append(attr)
+                textView?.scrollToEndOfDocument(nil)
             }
         }
 
         private func cleanAnsi(_ text: String) -> String {
-            // Regex to strip ANSI color and control codes for plain text rendering
             return text.replacingOccurrences(of: "\u{001B}\\[[0-9;]*[a-zA-Z]", with: "", options: .regularExpression)
         }
     }
