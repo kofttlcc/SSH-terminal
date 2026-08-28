@@ -43,24 +43,48 @@ public struct TerminalContainerView: View {
 
                                 Spacer()
 
+                                // Toggle Inline AI Agent Button
+                                Button(action: {
+                                    appState.inlineAIAgentOpen.toggle()
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "sparkles")
+                                            .foregroundColor(appState.inlineAIAgentOpen ? .purple : .gray)
+                                        Text("AI Agent 操作 (Cmd+K)")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundColor(appState.inlineAIAgentOpen ? .purple : .gray)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(appState.inlineAIAgentOpen ? Color.purple.opacity(0.18) : Color.clear)
+                                    .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+
+                                // Toggle AI Drawer Button
                                 Button(action: {
                                     appState.isDrawerOpen.toggle()
                                 }) {
                                     HStack(spacing: 4) {
-                                        Image(systemName: "sparkles")
-                                            .foregroundColor(.purple)
-                                        Text("AI 智能體 (Cmd+L)")
+                                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                                            .foregroundColor(appState.isDrawerOpen ? .cyan : .gray)
+                                        Text("對話 (Cmd+L)")
                                             .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(appState.isDrawerOpen ? .cyan : .gray)
                                     }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(appState.isDrawerOpen ? Color.cyan.opacity(0.18) : Color.clear)
+                                    .cornerRadius(6)
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
+                                .buttonStyle(.plain)
 
                                 Button(action: {
                                     appState.closeTab(tabId: tab.id)
                                 }) {
                                     Image(systemName: "xmark")
                                         .font(.system(size: 10))
+                                        .foregroundColor(.gray)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -68,6 +92,16 @@ public struct TerminalContainerView: View {
                             .padding(.vertical, 6)
                             .background(Color(red: 15/255, green: 17/255, blue: 26/255))
                             .overlay(Rectangle().frame(height: 1).foregroundColor(Color.gray.opacity(0.2)), alignment: .bottom)
+
+                            // Embedded Inline AI Agent Bar
+                            if appState.inlineAIAgentOpen {
+                                InlineTerminalAIAgentBarView(
+                                    appState: appState,
+                                    tabId: tab.id,
+                                    sessionId: firstPane.sessionId ?? firstPane.paneId,
+                                    host: firstPane.host
+                                )
+                            }
 
                             // Terminal Native NSTextView
                             NativeTerminalPaneView(

@@ -16,8 +16,13 @@ public class AppState: ObservableObject {
     @Published public var composeBarOpen: Bool = false
     @Published public var composeCommand: String = ""
 
-    // AI States
+    // AI States & Autonomous Agent
     @Published public var isDrawerOpen: Bool = false
+    @Published public var inlineAIAgentOpen: Bool = true
+    @Published public var inlineAIAgentInput: String = ""
+    @Published public var isAIAgentAutoRun: Bool = true
+    @Published public var isAIAgentRunning: Bool = false
+    @Published public var aiAgentStatusText: String = ""
     @Published public var inlineAssistOpen: Bool = false
     @Published public var aiSessions: [AIChatSession] = []
     @Published public var activeAISessionId: String? = nil
