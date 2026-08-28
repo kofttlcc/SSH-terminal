@@ -37,6 +37,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
+        textView.startCursorBlinkTimer()
 
         // Attach or restore persistent NSTextStorage
         if let existingStorage = appState.terminalStorages[sid] {
@@ -195,7 +196,9 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 ]
             )
             textStorage.append(attr)
+            textView?.setSelectedRange(NSRange(location: textStorage.length, length: 0))
             textView?.scrollToEndOfDocument(nil)
+            textView?.needsDisplay = true
         }
 
         func appendRawData(_ data: Data, sessionId: String) {
@@ -221,7 +224,9 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 ]
             )
             textStorage.append(attr)
+            textView?.setSelectedRange(NSRange(location: textStorage.length, length: 0))
             textView?.scrollToEndOfDocument(nil)
+            textView?.needsDisplay = true
         }
 
         private func cleanAnsi(_ text: String) -> String {
@@ -292,12 +297,96 @@ public class CustomTerminalTextView: NSTextView {
     public var sessionId: String = ""
     public var tabId: String = ""
 
+    private var cursorTimer: Timer?
+    private var isCursorVisible: Bool = true
+
     public override var acceptsFirstResponder: Bool { true }
-    public override func resignFirstResponder() -> Bool { true }
+
+    public override func resignFirstResponder() -> Bool {
+        cursorTimer?.invalidate()
+        cursorTimer = nil
+        self.needsDisplay = true
+        return true
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok {
+            startCursorBlinkTimer()
+            self.needsDisplay = true
+        }
+        return ok
+    }
+
+    public override var shouldDrawInsertionPoint: Bool { true }
+
+    public func startCursorBlinkTimer() {
+        cursorTimer?.invalidate()
+        isCursorVisible = true
+        cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.isCursorVisible.toggle()
+            self.needsDisplay = true
+        }
+    }
+
+    public override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn: Bool) {
+        let isFocused = (self.window?.firstResponder === self)
+        var blockRect = rect
+        blockRect.size.width = max(rect.width * 2, 8.5)
+
+        let cursorColor = NSColor(red: 56/255.0, green: 189/255.0, blue: 248/255.0, alpha: 0.95)
+
+        if isFocused {
+            if isCursorVisible {
+                cursorColor.setFill()
+                let path = NSBezierPath(roundedRect: blockRect, xRadius: 1, yRadius: 1)
+                path.fill()
+            }
+        } else {
+            // Unfocused hollow outline cursor (standard terminal style)
+            cursorColor.setStroke()
+            let path = NSBezierPath(roundedRect: blockRect, xRadius: 1, yRadius: 1)
+            path.lineWidth = 1.0
+            path.stroke()
+        }
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        // Draw terminal cursor block at insertion position
+        if self.selectedRange().length == 0, let layoutManager = self.layoutManager, let textContainer = self.textContainer {
+            let totalLen = (self.string as NSString).length
+            let charIndex = min(self.selectedRange().location, totalLen)
+            
+            var cursorRect: NSRect
+            if totalLen == 0 {
+                cursorRect = NSRect(x: 4, y: 4, width: 8.5, height: 16)
+            } else if charIndex >= totalLen {
+                let glyphIndex = layoutManager.glyphIndexForCharacter(at: max(0, totalLen - 1))
+                let charRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+                
+                if (self.string as NSString).hasSuffix("\n") || (self.string as NSString).hasSuffix("\r") {
+                    cursorRect = NSRect(x: 4, y: charRect.maxY, width: 8.5, height: charRect.height > 0 ? charRect.height : 16)
+                } else {
+                    cursorRect = NSRect(x: charRect.maxX, y: charRect.minY, width: 8.5, height: charRect.height > 0 ? charRect.height : 16)
+                }
+            } else {
+                let glyphIndex = layoutManager.glyphIndexForCharacter(at: charIndex)
+                let charRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+                cursorRect = NSRect(x: charRect.minX, y: charRect.minY, width: 8.5, height: charRect.height > 0 ? charRect.height : 16)
+            }
+
+            drawInsertionPoint(in: cursorRect, color: self.insertionPointColor, turnedOn: isCursorVisible)
+        }
+    }
 
     public override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
         self.window?.makeFirstResponder(self)
+        self.isCursorVisible = true
+        self.needsDisplay = true
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
