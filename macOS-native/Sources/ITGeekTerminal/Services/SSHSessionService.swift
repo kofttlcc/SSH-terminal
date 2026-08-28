@@ -8,6 +8,7 @@ public class SSHSession {
     private var process: Process?
     private var readSource: DispatchSourceRead?
     private var tempKeyFilePath: String?
+    private var hasAutoFilledPassword: Bool = false
     public var onDataReceived: ((Data) -> Void)?
     public var onClosed: (() -> Void)?
     public var onError: ((String) -> Void)?
@@ -122,6 +123,21 @@ public class SSHSession {
             let bytesRead = Darwin.read(self.masterFd, &buffer, buffer.count)
             if bytesRead > 0 {
                 let data = Data(buffer[0..<bytesRead])
+                let text = String(decoding: data, as: UTF8.self)
+
+                // Auto-fill password if host has password and server is asking for password
+                if let pwd = self.host.password, !pwd.isEmpty, !self.hasAutoFilledPassword {
+                    let lower = text.lowercased()
+                    if lower.contains("password:") || lower.contains("passphrase for key") || lower.contains("password for") {
+                        self.hasAutoFilledPassword = true
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                            if let pwdData = (pwd + "\n").data(using: .utf8) {
+                                self?.writeData(pwdData)
+                            }
+                        }
+                    }
+                }
+
                 DispatchQueue.main.async {
                     self.onDataReceived?(data)
                 }
@@ -150,7 +166,7 @@ public class SSHSession {
 
     private func resolveIdentityKey() -> String? {
         var rawKeyString: String? = host.privateKey
-        let targetKeyId = host.yubikeyKeyId ?? host.keyId ?? host.fallbackKeyId
+        let targetKeyId = host.keyId ?? host.fallbackKeyId ?? host.yubikeyKeyId
 
         if (rawKeyString == nil || rawKeyString?.isEmpty == true), let keyId = targetKeyId {
             let vault = VaultStorageService.shared.loadVault()
