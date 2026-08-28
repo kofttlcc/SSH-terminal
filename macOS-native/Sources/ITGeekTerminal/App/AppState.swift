@@ -37,6 +37,7 @@ public class AppState: ObservableObject {
     // UI Overlays & Modals
     @Published public var quickConnectOpen: Bool = false
     @Published public var hostEditModalOpen: Bool = false
+    @Published public var keyModalOpen: Bool = false
     @Published public var editingHost: HostItem? = nil
     @Published public var toasts: [ToastItem] = []
     @Published public var yubikeyTouchPrompt: YubiKeyTouchPromptData? = nil
@@ -56,9 +57,25 @@ public class AppState: ObservableObject {
     @Published public var editHostPort: String = "22"
     @Published public var editHostUsername: String = "root"
     @Published public var editHostPassword: String = ""
+    @Published public var editHostKeyId: String = ""
     @Published public var editHostGroup: String = "prod"
     @Published public var editHostOsType: String = "linux"
     @Published public var editHostRequireTouchId: Bool = false
+
+    // Key Modal Form States
+    @Published public var keyModalTab: String = "generate"
+    @Published public var keyModalName: String = "lijt-touchid"
+    @Published public var keyModalType: String = "ed25519"
+    @Published public var keyModalComment: String = ""
+    @Published public var keyModalPassphrase: String = ""
+    @Published public var keyModalTouchIdProtected: Bool = true
+    @Published public var keyModalApplyToAllHosts: Bool = false
+    @Published public var keyModalIsGenerating: Bool = false
+    @Published public var keyModalImportName: String = ""
+    @Published public var keyModalImportPrivateKey: String = ""
+    @Published public var keyModalImportPassphrase: String = ""
+    @Published public var keyModalImportTouchIdProtected: Bool = true
+    @Published public var keyModalNewlyCreatedKey: SSHKeyItem? = nil
 
     public struct ToastItem: Identifiable, Equatable {
         public let id: String = UUID().uuidString

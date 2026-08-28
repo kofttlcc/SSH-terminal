@@ -5,12 +5,13 @@ public struct HostEditModalView: View {
 
     public var body: some View {
         VStack(spacing: 16) {
-            // Header
+            // Modal Header
             HStack {
                 HStack(spacing: 8) {
                     Image(systemName: "server.rack")
                         .foregroundColor(.blue)
-                    Text(appState.editingHost == nil ? "新增 SSH 主機" : "編輯主機設定")
+                        .font(.system(size: 16))
+                    Text(appState.editingHost == nil ? "新增主機資產" : "編輯主機資產")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.white)
                 }
@@ -20,6 +21,7 @@ public struct HostEditModalView: View {
                 }) {
                     Image(systemName: "xmark")
                         .foregroundColor(.gray)
+                        .font(.system(size: 12))
                 }
                 .buttonStyle(.plain)
             }
@@ -27,8 +29,8 @@ public struct HostEditModalView: View {
             VStack(spacing: 12) {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("主機標籤名稱").font(.system(size: 11)).foregroundColor(.gray)
-                        TextField("例如: 生產環境 Web-01", text: $appState.editHostLabel)
+                        Text("主機別名 / 標籤 *").font(.system(size: 11)).foregroundColor(.gray)
+                        TextField("例如: 阿里雲廣州生產機", text: $appState.editHostLabel)
                             .textFieldStyle(.plain)
                             .font(.system(size: 12))
                             .padding(8)
@@ -49,7 +51,7 @@ public struct HostEditModalView: View {
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("伺服器 IP / 網域名稱").font(.system(size: 11)).foregroundColor(.gray)
+                        Text("伺服器 IP / 網域名稱 *").font(.system(size: 11)).foregroundColor(.gray)
                         TextField("例如: 192.168.1.100", text: $appState.editHostHostname)
                             .textFieldStyle(.plain)
                             .font(.system(size: 12, design: .monospaced))
@@ -82,21 +84,37 @@ public struct HostEditModalView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("登入密碼").font(.system(size: 11)).foregroundColor(.gray)
-                        SecureField("密碼", text: $appState.editHostPassword)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .padding(8)
-                            .background(Color(red: 20/255, green: 22/255, blue: 34/255))
-                            .cornerRadius(8)
+                        Text("SSH 認證私鑰 (Touch ID)").font(.system(size: 11)).foregroundColor(.gray)
+                        Picker("", selection: $appState.editHostKeyId) {
+                            Text("無私鑰 (密碼認證)").tag("")
+                            ForEach(appState.vault.keys) { key in
+                                Text("\(key.touchIdProtected == true ? "🔒 " : "")\(key.name) (\(key.type.uppercased()))").tag(key.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .onChange(of: appState.editHostKeyId) { newKeyId in
+                            if let k = appState.vault.keys.first(where: { $0.id == newKeyId }), k.touchIdProtected == true {
+                                appState.editHostRequireTouchId = true
+                            }
+                        }
                     }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("登入密碼 (選填)").font(.system(size: 11)).foregroundColor(.gray)
+                    SecureField("若使用私鑰可留空", text: $appState.editHostPassword)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .padding(8)
+                        .background(Color(red: 20/255, green: 22/255, blue: 34/255))
+                        .cornerRadius(8)
                 }
 
                 Toggle(isOn: $appState.editHostRequireTouchId) {
                     HStack {
                         Image(systemName: "touchid")
                             .foregroundColor(.purple)
-                        Text("連線此主機需進行 Touch ID 指紋授權")
+                        Text("連線此主機強制進行 Touch ID 指紋硬體授權")
                             .font(.system(size: 12))
                             .foregroundColor(.white)
                     }
@@ -134,6 +152,7 @@ public struct HostEditModalView: View {
                 appState.editHostPort = "\(h.port)"
                 appState.editHostUsername = h.username
                 appState.editHostPassword = h.password ?? ""
+                appState.editHostKeyId = h.keyId ?? h.fallbackKeyId ?? ""
                 appState.editHostOsType = h.osType ?? "linux"
                 appState.editHostGroup = h.group ?? "prod"
                 appState.editHostRequireTouchId = h.requireTouchId ?? false
@@ -143,9 +162,10 @@ public struct HostEditModalView: View {
                 appState.editHostPort = "22"
                 appState.editHostUsername = "root"
                 appState.editHostPassword = ""
+                appState.editHostKeyId = appState.vault.keys.first?.id ?? ""
                 appState.editHostOsType = "linux"
                 appState.editHostGroup = "prod"
-                appState.editHostRequireTouchId = false
+                appState.editHostRequireTouchId = appState.vault.keys.first?.touchIdProtected ?? false
             }
         }
     }
@@ -161,6 +181,7 @@ public struct HostEditModalView: View {
             appState.vault.hosts[idx].port = port
             appState.vault.hosts[idx].username = appState.editHostUsername
             appState.vault.hosts[idx].password = appState.editHostPassword
+            appState.vault.hosts[idx].keyId = appState.editHostKeyId.isEmpty ? nil : appState.editHostKeyId
             appState.vault.hosts[idx].group = appState.editHostGroup
             appState.vault.hosts[idx].requireTouchId = appState.editHostRequireTouchId
             appState.addToast("success", "已更新主機「\(lbl)」")
@@ -170,8 +191,9 @@ public struct HostEditModalView: View {
                 hostname: appState.editHostHostname,
                 port: port,
                 username: appState.editHostUsername,
-                authType: .password,
+                authType: appState.editHostKeyId.isEmpty ? .password : .privateKey,
                 password: appState.editHostPassword,
+                keyId: appState.editHostKeyId.isEmpty ? nil : appState.editHostKeyId,
                 group: appState.editHostGroup,
                 osType: appState.editHostOsType,
                 requireTouchId: appState.editHostRequireTouchId

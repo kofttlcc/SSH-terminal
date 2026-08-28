@@ -64,6 +64,11 @@ public struct MainView: View {
                 }
             }
 
+            // Key Generate / Import Modal Overlay
+            if appState.keyModalOpen {
+                KeyModalView(appState: appState)
+            }
+
             // Dangerous Command Warning Modal
             DangerousCommandModalView(appState: appState)
 
