@@ -190,7 +190,7 @@ export const SettingsView: React.FC = () => {
 
   const aiConfig: AIModelConfig = settings.aiConfig || {
     provider: 'deepseek',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     temperature: 0.3,
     maxTokens: 4096,
     enableTerminalContext: true,

@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS: TerminalSettings = {
   touchIdForHosts: false,
   aiConfig: {
     provider: 'deepseek',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     temperature: 0.3,
     maxTokens: 4096,
     enableTerminalContext: true,
