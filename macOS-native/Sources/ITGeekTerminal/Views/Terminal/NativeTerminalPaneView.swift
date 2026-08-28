@@ -113,6 +113,24 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     return
                 }
 
+                let targetKeyId = host.yubikeyKeyId ?? host.keyId ?? host.fallbackKeyId
+                let targetKey = appState.vault.keys.first(where: { $0.id == targetKeyId })
+
+                let needsTouchId = (host.requireTouchId == true) ||
+                                   (appState.vault.settings.touchIdForHosts == true) ||
+                                   (host.touchIdForKey == true) ||
+                                   (targetKey?.touchIdProtected == true)
+
+                let isYubiKeyAuth = (host.authType == .yubikey) ||
+                                    (host.authType == .hybrid) ||
+                                    (host.yubikeyKeyId != nil) ||
+                                    (targetKey?.storageType == "yubikey_fido2") ||
+                                    (targetKey?.storageType == "yubikey_piv")
+
+                if isYubiKeyAuth {
+                    self.appendPlainText("[YubiKey 認證]: 偵測到硬體密鑰配置，若設備指示燈閃爍請觸碰金屬觸控環...\r\n", sessionId: sid)
+                }
+
                 let ssh = SSHSession(sessionId: sid, host: host)
                 appState.sshSessions[sid] = ssh
 
@@ -121,11 +139,27 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 }
 
                 ssh.onError = { [weak self] err in
-                    self?.appendPlainText("\r\n[SSH 錯誤]: \(err)\r\n", sessionId: sid)
+                    self?.appendPlainText("\r\n[SSH 連線錯誤]: \(err)\r\n", sessionId: sid)
                 }
 
-                self.appendPlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n", sessionId: sid)
-                _ = ssh.connect()
+                if needsTouchId {
+                    self.appendPlainText("[Touch ID 認證]: 正在調用「\(targetKey?.name ?? host.label)」私鑰，請按壓指紋驗證...\r\n", sessionId: sid)
+                    Task {
+                        let res = await BiometricsService.shared.promptTouchID(
+                            reason: "調用「\(targetKey?.name ?? host.label)」私鑰認證伺服器「\(host.label)」，請驗證 Touch ID 指紋"
+                        )
+                        if !res.success {
+                            self.appendPlainText("\r\n[Touch ID 認證取消]: \(res.error ?? "指紋識別未通過，連線已終止。")\r\n", sessionId: sid)
+                            appState.sshSessions.removeValue(forKey: sid)
+                            return
+                        }
+                        self.appendPlainText("[Touch ID 認證通過]: 正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n", sessionId: sid)
+                        _ = ssh.connect()
+                    }
+                } else {
+                    self.appendPlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n", sessionId: sid)
+                    _ = ssh.connect()
+                }
             }
         }
 

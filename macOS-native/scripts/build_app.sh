@@ -75,8 +75,14 @@ rm -f "${DMG_PATH}"
 
 hdiutil create -volname "${APP_NAME}" -srcfolder "${APP_BUNDLE}" -ov -format UDZO "${DMG_PATH}"
 
+echo "🚚 正在同步並覆蓋至系統應用程式目錄 (/Applications/${APP_NAME}.app)..."
+rm -rf "/Applications/${APP_NAME}.app"
+cp -R "${APP_BUNDLE}" "/Applications/"
+touch "/Applications/${APP_NAME}.app" || true
+
 echo "=============================================="
-echo "✅ macOS 純原生應用編譯完成！"
-echo "📍 .app 目錄: ${APP_BUNDLE}"
+echo "✅ macOS 純原生應用編譯完成並已同步至應用程式目錄！"
+echo "📍 系統應用程式: /Applications/${APP_NAME}.app (已即時覆蓋)"
+echo "📍 本地 .app 目錄: ${APP_BUNDLE}"
 echo "📍 .dmg 安裝包: ${DMG_PATH}"
 echo "=============================================="

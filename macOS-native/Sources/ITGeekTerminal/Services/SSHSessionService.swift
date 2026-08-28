@@ -35,10 +35,13 @@ public class SSHSession {
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
 
         var sshArgs = [
+            "-tt",
+            "-o", "RequestTTY=force",
             "-p", "\(host.port)",
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ServerAliveInterval=15",
-            "-o", "ServerAliveCountMax=3"
+            "-o", "ServerAliveCountMax=3",
+            "-o", "ConnectTimeout=15"
         ]
 
         if host.agentForward == true {
@@ -56,13 +59,11 @@ public class SSHSession {
         }
 
         // Handle SSH Key / YubiKey Identity
-        if let keyPath = resolveIdentityKey() {
-            sshArgs.append(contentsOf: ["-i", keyPath])
-            self.tempKeyFilePath = keyPath
-        }
-
-        // Check for YubiKey PKCS11 Provider if yubikey auth selected
-        if host.authType == .yubikey || host.yubikeyKeyId != nil {
+        let keyPath = resolveIdentityKey()
+        if let kp = keyPath {
+            sshArgs.append(contentsOf: ["-i", kp])
+            self.tempKeyFilePath = kp
+        } else if host.authType == .yubikey {
             let pkcs11Paths = [
                 "/opt/homebrew/lib/libykcs11.dylib",
                 "/usr/local/lib/libykcs11.dylib",
@@ -83,7 +84,9 @@ public class SSHSession {
 
         var env = ProcessInfo.processInfo.environment
         env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
         env["LANG"] = "en_US.UTF-8"
+        env["LC_ALL"] = "en_US.UTF-8"
         proc.environment = env
 
         proc.standardInput = slaveHandle
@@ -160,8 +163,12 @@ public class SSHSession {
             return nil
         }
 
-        let finalPem = extractRawKey(rawKey)
+        var finalPem = extractRawKey(rawKey)
         guard !finalPem.isEmpty else { return nil }
+
+        if !finalPem.hasSuffix("\n") {
+            finalPem += "\n"
+        }
 
         let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("itgeek_keys", isDirectory: true)
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
@@ -171,7 +178,6 @@ public class SSHSession {
 
         do {
             try finalPem.write(to: keyFileURL, atomically: true, encoding: .utf8)
-            // OpenSSH requires strict 0600 file permissions for identity files
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keyFileURL.path)
             return keyFileURL.path
         } catch {

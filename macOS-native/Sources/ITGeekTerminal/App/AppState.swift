@@ -135,58 +135,7 @@ public class AppState: ObservableObject {
     }
 
     public func openHostTerminal(host: HostItem) {
-        let targetKeyId = host.yubikeyKeyId ?? host.keyId ?? host.fallbackKeyId
-        let targetKey = vault.keys.first(where: { $0.id == targetKeyId })
-
-        let isYubiKeyAuth = (host.authType == .yubikey) ||
-                            (host.authType == .hybrid) ||
-                            (host.yubikeyKeyId != nil) ||
-                            (targetKey?.storageType == "yubikey_fido2") ||
-                            (targetKey?.storageType == "yubikey_piv")
-
-        let needsTouchId = (host.requireTouchId == true) ||
-                           (vault.settings.touchIdForHosts == true) ||
-                           (host.touchIdForKey == true) ||
-                           (targetKey?.touchIdProtected == true)
-
-        let proceedConnection: () -> Void = { [weak self] in
-            guard let self = self else { return }
-            if needsTouchId {
-                Task {
-                    let keyName = targetKey?.name ?? host.label
-                    let res = await BiometricsService.shared.promptTouchID(
-                        reason: "正在調用「\(keyName)」私鑰認證主機「\(host.label)」，請驗證 Touch ID 指紋"
-                    )
-                    if !res.success {
-                        self.addToast("warning", "Touch ID 指紋識別未通過或已取消，連線已終止")
-                        return
-                    }
-                    _ = self.createTab(title: host.label, type: "terminal", host: host, isLocal: false)
-                }
-            } else {
-                _ = self.createTab(title: host.label, type: "terminal", host: host, isLocal: false)
-            }
-        }
-
-        if isYubiKeyAuth {
-            let devs = YubikeyService.shared.listDevices()
-            let serial = devs.first?.serial ?? targetKey?.yubikeySerial ?? "YK-17891328"
-            let keyDisplayName = targetKey?.name ?? "YubiKey 5 FIDO2/PIV"
-
-            self.yubikeyTouchPrompt = YubiKeyTouchPromptData(
-                hostLabel: host.label,
-                keyName: keyDisplayName,
-                serial: serial,
-                onConfirm: {
-                    proceedConnection()
-                },
-                onCancel: { [weak self] in
-                    self?.addToast("info", "已取消 YubiKey 認證連線")
-                }
-            )
-        } else {
-            proceedConnection()
-        }
+        _ = self.createTab(title: host.label, type: "terminal", host: host, isLocal: false)
     }
 
     public func openLocalTerminal() {
