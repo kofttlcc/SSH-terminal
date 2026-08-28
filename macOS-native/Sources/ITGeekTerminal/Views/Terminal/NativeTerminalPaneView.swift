@@ -27,6 +27,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         let textView = CustomTerminalTextView()
         textView.appState = appState
         textView.sessionId = sid
+        textView.tabId = tabId
         textView.backgroundColor = NSColor(red: 9/255.0, green: 10/255.0, blue: 15/255.0, alpha: 1.0)
         textView.textColor = NSColor(red: 226/255.0, green: 232/255.0, blue: 240/255.0, alpha: 1.0)
         textView.font = NSFont.monospacedSystemFont(ofSize: 13.0, weight: .regular)
@@ -59,6 +60,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         if let textView = nsView.documentView as? CustomTerminalTextView {
             textView.appState = appState
             textView.sessionId = sid
+            textView.tabId = tabId
 
             if let existingStorage = appState.terminalStorages[sid], textView.textStorage !== existingStorage {
                 textView.layoutManager?.replaceTextStorage(existingStorage)
@@ -129,10 +131,6 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                                    (host.touchIdForKey == true) ||
                                    keyRequiresTouchId
 
-                if isYubiKeyAuth {
-                    self.appendPlainText("[YubiKey 硬體認證]: 偵測到硬體金鑰配置，若設備綠燈閃爍請觸碰金屬觸控環...\r\n", sessionId: sid)
-                }
-
                 let ssh = SSHSession(sessionId: sid, host: host)
                 appState.sshSessions[sid] = ssh
 
@@ -144,7 +142,26 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     self?.appendPlainText("\r\n[SSH 連線錯誤]: \(err)\r\n", sessionId: sid)
                 }
 
-                if needsTouchId {
+                if isYubiKeyAuth {
+                    let devs = YubikeyService.shared.listDevices()
+                    let serial = devs.first?.serial ?? yubiKey?.yubikeySerial ?? "YK-17891328"
+                    let keyDisplayName = yubiKey?.name ?? hostKey?.name ?? "YubiKey 5 FIDO2/PIV"
+
+                    self.appendPlainText("[YubiKey 硬體認證]: 正在調用 YubiKey 5 實體硬體金鑰「\(keyDisplayName)」，請觸碰設備金屬環...\r\n", sessionId: sid)
+
+                    appState.yubikeyTouchPrompt = YubiKeyTouchPromptData(
+                        hostLabel: host.label,
+                        keyName: keyDisplayName,
+                        serial: serial,
+                        onConfirm: {
+                            _ = ssh.connect()
+                        },
+                        onCancel: { [weak self] in
+                            self?.appendPlainText("\r\n[YubiKey 認證已取消]: 連線已終止。\r\n", sessionId: sid)
+                            appState.sshSessions.removeValue(forKey: sid)
+                        }
+                    )
+                } else if needsTouchId {
                     let keyDisplayName = hostKey?.name ?? fallbackKey?.name ?? host.label
                     self.appendPlainText("[Touch ID 安全驗證]: 正在調用「\(keyDisplayName)」私鑰，請按壓指紋授權...\r\n", sessionId: sid)
                     Task {
@@ -273,39 +290,249 @@ public class Utf8StreamDecoder {
 public class CustomTerminalTextView: NSTextView {
     public weak var appState: AppState?
     public var sessionId: String = ""
+    public var tabId: String = ""
 
     public override var acceptsFirstResponder: Bool { true }
-
-    public override func resignFirstResponder() -> Bool {
-        return true
-    }
+    public override func resignFirstResponder() -> Bool { true }
 
     public override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
         self.window?.makeFirstResponder(self)
     }
 
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // Command + V: Paste directly into terminal session
+        if flags == .command && event.charactersIgnoringModifiers == "v" {
+            paste(nil)
+            return true
+        }
+
+        // Command + C: Copy selected terminal text to clipboard
+        if flags == .command && event.charactersIgnoringModifiers == "c" {
+            if self.selectedRange().length > 0 {
+                copy(nil)
+                appState?.addToast("info", "已複製所選終端文字")
+                return true
+            }
+            return false
+        }
+
+        // Command + A: Select all terminal text
+        if flags == .command && event.charactersIgnoringModifiers == "a" {
+            self.selectAll(nil)
+            return true
+        }
+
+        // Command + K: Toggle AI Agent Bar
+        if flags == .command && event.charactersIgnoringModifiers == "k" {
+            appState?.inlineAIAgentOpen.toggle()
+            return true
+        }
+
+        // Command + L: Toggle AI Assistant Drawer
+        if flags == .command && event.charactersIgnoringModifiers == "l" {
+            appState?.isDrawerOpen.toggle()
+            return true
+        }
+
+        // Command + W: Close current terminal tab
+        if flags == .command && event.charactersIgnoringModifiers == "w" {
+            if !tabId.isEmpty {
+                appState?.closeTab(tabId: tabId)
+                return true
+            }
+        }
+
+        // Command + T: Open local shell tab
+        if flags == .command && event.charactersIgnoringModifiers == "t" {
+            appState?.openLocalTerminal()
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
+    }
+
     public override func keyDown(with event: NSEvent) {
-        // Strictly verify that this terminal view is currently the active focused firstResponder in the window
         guard let window = self.window, window.firstResponder === self else {
             super.keyDown(with: event)
             return
         }
 
-        guard let chars = event.characters, !chars.isEmpty else {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // If Command key is pressed (and not handled by performKeyEquivalent), let system handle it
+        if flags.contains(.command) {
             super.keyDown(with: event)
             return
         }
 
-        if let data = chars.data(using: .utf8) {
+        // Handle macOS Special Keys by keyCode
+        switch event.keyCode {
+        case 126: // Up Arrow
+            if flags.contains(.option) {
+                sendString("\u{001B}[1;3A")
+            } else if flags.contains(.control) {
+                sendString("\u{001B}[1;5A")
+            } else {
+                sendString("\u{001B}[A")
+            }
+            return
+        case 125: // Down Arrow
+            if flags.contains(.option) {
+                sendString("\u{001B}[1;3B")
+            } else if flags.contains(.control) {
+                sendString("\u{001B}[1;5B")
+            } else {
+                sendString("\u{001B}[B")
+            }
+            return
+        case 124: // Right Arrow
+            if flags.contains(.option) { // macOS Option+Right (Word forward)
+                sendString("\u{001B}f")
+            } else if flags.contains(.control) {
+                sendString("\u{001B}[1;5C")
+            } else {
+                sendString("\u{001B}[C")
+            }
+            return
+        case 123: // Left Arrow
+            if flags.contains(.option) { // macOS Option+Left (Word backward)
+                sendString("\u{001B}b")
+            } else if flags.contains(.control) {
+                sendString("\u{001B}[1;5D")
+            } else {
+                sendString("\u{001B}[D")
+            }
+            return
+        case 115: // Home
+            sendString("\u{001B}[H")
+            return
+        case 119: // End
+            sendString("\u{001B}[F")
+            return
+        case 116: // Page Up
+            sendString("\u{001B}[5~")
+            return
+        case 121: // Page Down
+            sendString("\u{001B}[6~")
+            return
+        case 117: // Forward Delete (fn + delete)
+            sendString("\u{001B}[3~")
+            return
+        case 51: // Backspace (Delete key on macOS)
+            if flags.contains(.option) {
+                sendString("\u{0017}") // Ctrl+W (delete word backward)
+            } else {
+                sendString("\u{007F}")
+            }
+            return
+        case 36, 76: // Enter / Return / Keypad Enter
+            sendString("\r")
+            return
+        case 48: // Tab (Shell Autocompletion)
+            if flags.contains(.shift) {
+                sendString("\u{001B}[Z")
+            } else {
+                sendString("\t")
+            }
+            return
+        case 53: // Escape
+            sendString("\u{001B}")
+            return
+        default:
+            break
+        }
+
+        // Handle Control + Character Key Combinations
+        if flags.contains(.control), let unmod = event.charactersIgnoringModifiers?.lowercased().first {
+            if let ascii = unmod.asciiValue, ascii >= 97 && ascii <= 122 { // 'a'...'z'
+                let ctrlCode = UInt8(ascii - 96) // 1 for 'a', 3 for 'c' (SIGINT), 4 for 'd' (EOF), 26 for 'z' (SIGTSTP)
+                let data = Data([ctrlCode])
+                appState?.sendDataToSession(sessionId: sessionId, data: data)
+                return
+            }
+        }
+
+        // Normal Characters (including UTF-8 input, numbers, symbols)
+        if let chars = event.characters, !chars.isEmpty {
+            if let data = chars.data(using: .utf8) {
+                appState?.sendDataToSession(sessionId: sessionId, data: data)
+            }
+        }
+    }
+
+    private func sendString(_ str: String) {
+        if let data = str.data(using: .utf8) {
             appState?.sendDataToSession(sessionId: sessionId, data: data)
         }
     }
 
     public override func paste(_ sender: Any?) {
-        if let text = NSPasteboard.general.string(forType: .string),
-           let data = text.data(using: .utf8) {
-            appState?.sendDataToSession(sessionId: sessionId, data: data)
+        if let text = NSPasteboard.general.string(forType: .string) {
+            if let data = text.data(using: .utf8) {
+                appState?.sendDataToSession(sessionId: sessionId, data: data)
+            }
         }
+    }
+
+    public override func copy(_ sender: Any?) {
+        let range = self.selectedRange()
+        if range.length > 0 {
+            let selectedText = (self.string as NSString).substring(with: range)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(selectedText, forType: .string)
+        }
+    }
+
+    public override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu(title: "TerminalContext")
+
+        let copyItem = NSMenuItem(title: "複製 (Copy)", action: #selector(contextCopy), keyEquivalent: "c")
+        copyItem.target = self
+        copyItem.isEnabled = self.selectedRange().length > 0
+        menu.addItem(copyItem)
+
+        let pasteItem = NSMenuItem(title: "貼上 (Paste)", action: #selector(contextPaste), keyEquivalent: "v")
+        pasteItem.target = self
+        menu.addItem(pasteItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let clearItem = NSMenuItem(title: "清空螢幕 (Clear)", action: #selector(contextClear), keyEquivalent: "k")
+        clearItem.target = self
+        menu.addItem(clearItem)
+
+        let aiItem = NSMenuItem(title: "呼叫 AI 智能體 (Cmd+K)", action: #selector(contextToggleAI), keyEquivalent: "k")
+        aiItem.target = self
+        menu.addItem(aiItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let selectAllItem = NSMenuItem(title: "選擇全部 (Select All)", action: #selector(selectAll(_:)), keyEquivalent: "a")
+        selectAllItem.target = self
+        menu.addItem(selectAllItem)
+
+        return menu
+    }
+
+    @objc private func contextCopy() {
+        copy(nil)
+    }
+
+    @objc private func contextPaste() {
+        paste(nil)
+    }
+
+    @objc private func contextClear() {
+        if let storage = appState?.terminalStorages[sessionId] {
+            storage.setAttributedString(NSAttributedString(string: ""))
+        }
+        sendString("\u{000C}") // Send Ctrl+L to remote shell
+    }
+
+    @objc private func contextToggleAI() {
+        appState?.inlineAIAgentOpen.toggle()
     }
 }
