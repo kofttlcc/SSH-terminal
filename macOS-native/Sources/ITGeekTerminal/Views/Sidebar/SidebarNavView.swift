@@ -6,22 +6,32 @@ public struct SidebarNavView: View {
     public var body: some View {
         VStack(spacing: 0) {
             // App Header
-            HStack(spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.cyan.opacity(0.2))
+            HStack(spacing: 10) {
+                if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "png"),
+                   let nsImg = NSImage(contentsOfFile: iconPath) {
+                    Image(nsImage: nsImg)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
                         .frame(width: 32, height: 32)
-                    Image(systemName: "terminal.fill")
-                        .foregroundColor(.cyan)
-                        .font(.system(size: 16))
+                        .cornerRadius(8)
+                        .shadow(radius: 2)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(LinearGradient(colors: [Color.red, Color(red: 180/255, green: 20/255, blue: 30/255)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 32, height: 32)
+                        Text("X")
+                            .font(.system(size: 16, weight: .black, design: .rounded))
+                            .foregroundColor(.white)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("ITGeek SSH")
+                    Text("ITGeek Terminal")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.white)
-                    Text("原生 macOS 旗艦版")
+                    Text("Xshell 旗艦體驗 · 原生版")
                         .font(.system(size: 10))
-                        .foregroundColor(.cyan.opacity(0.8))
+                        .foregroundColor(.orange.opacity(0.8))
                 }
                 Spacer()
             }
