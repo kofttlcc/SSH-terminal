@@ -113,22 +113,27 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     return
                 }
 
-                let targetKeyId = host.yubikeyKeyId ?? host.keyId ?? host.fallbackKeyId
-                let targetKey = appState.vault.keys.first(where: { $0.id == targetKeyId })
+                let hostKey = appState.vault.keys.first(where: { $0.id == host.keyId })
+                let fallbackKey = appState.vault.keys.first(where: { $0.id == host.fallbackKeyId })
+                let yubiKey = appState.vault.keys.first(where: { $0.id == host.yubikeyKeyId })
 
-                let needsTouchId = (host.requireTouchId == true) ||
-                                   (appState.vault.settings.touchIdForHosts == true) ||
-                                   (host.touchIdForKey == true) ||
-                                   (targetKey?.touchIdProtected == true)
+                let keyRequiresTouchId = (hostKey?.touchIdProtected == true) ||
+                                         (fallbackKey?.touchIdProtected == true) ||
+                                         (yubiKey?.touchIdProtected == true)
 
                 let isYubiKeyAuth = (host.authType == .yubikey) ||
                                     (host.authType == .hybrid) ||
                                     (host.yubikeyKeyId != nil) ||
-                                    (targetKey?.storageType == "yubikey_fido2") ||
-                                    (targetKey?.storageType == "yubikey_piv")
+                                    (hostKey?.storageType == "yubikey_fido2") ||
+                                    (yubiKey?.storageType == "yubikey_fido2")
+
+                let needsTouchId = (host.requireTouchId == true) ||
+                                   (appState.vault.settings.touchIdForHosts == true) ||
+                                   (host.touchIdForKey == true) ||
+                                   keyRequiresTouchId
 
                 if isYubiKeyAuth {
-                    self.appendPlainText("[YubiKey 認證]: 偵測到硬體密鑰配置，若設備指示燈閃爍請觸碰金屬觸控環...\r\n", sessionId: sid)
+                    self.appendPlainText("[YubiKey 硬體認證]: 偵測到硬體金鑰配置，若設備綠燈閃爍請觸碰金屬觸控環...\r\n", sessionId: sid)
                 }
 
                 let ssh = SSHSession(sessionId: sid, host: host)
@@ -143,17 +148,18 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 }
 
                 if needsTouchId {
-                    self.appendPlainText("[Touch ID 認證]: 正在調用「\(targetKey?.name ?? host.label)」私鑰，請按壓指紋驗證...\r\n", sessionId: sid)
+                    let keyDisplayName = hostKey?.name ?? fallbackKey?.name ?? host.label
+                    self.appendPlainText("[Touch ID 安全驗證]: 正在調用「\(keyDisplayName)」私鑰，請按壓指紋授權...\r\n", sessionId: sid)
                     Task {
                         let res = await BiometricsService.shared.promptTouchID(
-                            reason: "調用「\(targetKey?.name ?? host.label)」私鑰認證伺服器「\(host.label)」，請驗證 Touch ID 指紋"
+                            reason: "調用「\(keyDisplayName)」私鑰認證伺服器「\(host.label)」，請驗證 Touch ID 指紋"
                         )
                         if !res.success {
-                            self.appendPlainText("\r\n[Touch ID 認證取消]: \(res.error ?? "指紋識別未通過，連線已終止。")\r\n", sessionId: sid)
+                            self.appendPlainText("\r\n[Touch ID 認證未通過]: \(res.error ?? "指紋識別未授權或已取消，連線已終止。")\r\n", sessionId: sid)
                             appState.sshSessions.removeValue(forKey: sid)
                             return
                         }
-                        self.appendPlainText("[Touch ID 認證通過]: 正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n", sessionId: sid)
+                        self.appendPlainText("[Touch ID 驗證成功]: 指紋授權通過，正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n", sessionId: sid)
                         _ = ssh.connect()
                     }
                 } else {
@@ -184,6 +190,8 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
 
             if let string = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) {
                 let clean = cleanAnsi(string)
+                guard !clean.isEmpty else { return }
+
                 let attr = NSAttributedString(
                     string: clean,
                     attributes: [
@@ -197,7 +205,25 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         }
 
         private func cleanAnsi(_ text: String) -> String {
-            return text.replacingOccurrences(of: "\u{001B}\\[[0-9;]*[a-zA-Z]", with: "", options: .regularExpression)
+            var str = text
+            // 1. OSC sequences: \x1b]...(\x07|\x1b\\)
+            str = str.replacingOccurrences(of: "\u{001B}\\][^\u{0007}\u{001B}]*(\u{0007}|\u{001B}\\\\)?", with: "", options: .regularExpression)
+            
+            // 2. CSI sequences: \x1b\[[?>=<]?[0-9;]*[a-zA-Z~]
+            str = str.replacingOccurrences(of: "\u{001B}\\[[?>=<]?[0-9;]*[a-zA-Z~]", with: "", options: .regularExpression)
+            
+            // 3. 2-character escape sequences: \x1b[@-Z\\-_=><]
+            str = str.replacingOccurrences(of: "\u{001B}[@-Z\\\\-_=><]", with: "", options: .regularExpression)
+            
+            // 4. Standalone escape or control characters (\x00-\x08, \x0B, \x0C, \x0E-\x1F except \t, \n, \r)
+            str = str.replacingOccurrences(of: "[\u{0000}-\u{0008}\u{000B}\u{000C}\u{000E}-\u{001F}\u{007F}]", with: "", options: .regularExpression)
+            
+            // 5. In case escape character was split across packets: strip leftover dangling ?2004h/l or ]0;...
+            str = str.replacingOccurrences(of: "\\[\\?[0-9]+[hl]", with: "", options: .regularExpression)
+            str = str.replacingOccurrences(of: "\\?[0-9]{3,5}[hl]", with: "", options: .regularExpression)
+            str = str.replacingOccurrences(of: "\\]0;[^\r\n\u{0007}]*[\u{0007}]?", with: "", options: .regularExpression)
+            
+            return str
         }
     }
 }
