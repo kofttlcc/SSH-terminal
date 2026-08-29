@@ -33,6 +33,7 @@ public class AppState: ObservableObject {
     public var localSessions: [String: LocalPtySession] = [:]
     public var sshSessions: [String: SSHSession] = [:]
     public var terminalStorages: [String: NSTextStorage] = [:]
+    @Published public var sessionBuffers: [String: String] = [:]
 
     // UI Overlays & Modals
     @Published public var quickConnectOpen: Bool = false
@@ -201,6 +202,15 @@ public class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    public func appendTerminalOutput(sessionId: String, text: String) {
+        var current = sessionBuffers[sessionId] ?? ""
+        current.append(text)
+        if current.count > 30000 {
+            current = String(current.suffix(20000))
+        }
+        sessionBuffers[sessionId] = current
     }
 
     public func sendCommandToTerminal(command: String, sessionId: String? = nil, bypassWarning: Bool = false) {

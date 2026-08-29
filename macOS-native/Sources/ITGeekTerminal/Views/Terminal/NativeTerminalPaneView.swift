@@ -256,6 +256,19 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         }
 
         func writeToXterm(data: Data) {
+            let text = String(decoding: data, as: UTF8.self)
+            if let appState = self.appState, let webView = self.webView {
+                let sid = webView.sessionId
+                appState.appendTerminalOutput(sessionId: sid, text: text)
+                DevOpsAgentService.shared.onTerminalOutput(
+                    sessionId: sid,
+                    text: text,
+                    host: parent.pane.host,
+                    isLocal: parent.pane.isLocal,
+                    appState: appState
+                )
+            }
+
             guard isTerminalReady else {
                 pendingData.append(data)
                 return
