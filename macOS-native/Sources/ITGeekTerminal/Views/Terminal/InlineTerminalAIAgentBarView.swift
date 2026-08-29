@@ -20,25 +20,26 @@ public struct InlineTerminalAIAgentBarView: View {
                     agentService: agentService
                 )
                 .frame(height: appState.inlineAgentPanelHeight)
-
-                // Draggable Resize Bar Handle (Always active and draggable)
-                AgentResizeHandleView(appState: appState)
             } else {
-                // Default Natural Language Requirement Input Bar
+                // Default Natural Language Requirement Input Bar (Idle / Initial Connected State)
                 CompactAgentInputBarView(
                     sessionId: sessionId,
                     host: host,
                     appState: appState,
                     agentService: agentService
                 )
+                .frame(height: max(75, min(appState.inlineAgentPanelHeight, 260)))
             }
+
+            // Draggable Resize Bar Handle (Always active and visible in ALL states)
+            AgentResizeHandleView(appState: appState)
         }
         .background(Color(red: 15/255, green: 17/255, blue: 26/255))
         .overlay(Rectangle().frame(height: 1).foregroundColor(Color.purple.opacity(0.25)), alignment: .bottom)
     }
 }
 
-// MARK: - Draggable Resize Handle
+// MARK: - Draggable Resize Handle (Always Active)
 struct AgentResizeHandleView: View {
     @ObservedObject var appState: AppState
 
@@ -48,14 +49,14 @@ struct AgentResizeHandleView: View {
 
             // Visual Grip Handle
             Capsule()
-                .fill(appState.isResizeHandleHovering ? Color.purple : Color.gray.opacity(0.4))
+                .fill(appState.isResizeHandleHovering ? Color.purple : Color.gray.opacity(0.45))
                 .frame(width: 48, height: 4)
 
             Spacer()
         }
         .frame(height: 9)
         .frame(maxWidth: .infinity)
-        .background(appState.isResizeHandleHovering ? Color.purple.opacity(0.15) : Color(red: 12/255, green: 14/255, blue: 20/255))
+        .background(appState.isResizeHandleHovering ? Color.purple.opacity(0.18) : Color(red: 12/255, green: 14/255, blue: 20/255))
         .contentShape(Rectangle())
         .onHover { hovering in
             appState.isResizeHandleHovering = hovering
@@ -69,7 +70,7 @@ struct AgentResizeHandleView: View {
             DragGesture(minimumDistance: 1)
                 .onChanged { gesture in
                     let newHeight = appState.inlineAgentInitialDragHeight + gesture.translation.height
-                    appState.inlineAgentPanelHeight = max(160, min(850, newHeight))
+                    appState.inlineAgentPanelHeight = max(75, min(850, newHeight))
                 }
                 .onEnded { _ in
                     appState.inlineAgentInitialDragHeight = appState.inlineAgentPanelHeight
@@ -466,7 +467,7 @@ struct StatusPillView: View {
     }
 }
 
-// MARK: - Compact Input Bar View
+// MARK: - Compact Input Bar View (Idle State directly accessible with resizer)
 struct CompactAgentInputBarView: View {
     let sessionId: String
     let host: HostItem?
@@ -474,7 +475,7 @@ struct CompactAgentInputBarView: View {
     @ObservedObject var agentService: DevOpsAgentService
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             // Main Input & Controls Row
             HStack(spacing: 8) {
                 // AI Agent Badge
@@ -544,41 +545,41 @@ struct CompactAgentInputBarView: View {
             }
 
             // Quick Operations Pills Row
-            HStack(spacing: 6) {
-                Text("推薦運維目標:")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    Text("推薦運維目標:")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
 
-                QuickAgentPill(title: "🚀 優化 TCP 並啟用 BBR") {
-                    appState.inlineAIAgentInput = "檢查這台伺服器是否支援 BBR 擁塞控制，配置優化核心網路參數並成功啟用 BBR"
-                    startDevOpsMission()
+                    QuickAgentPill(title: "🚀 優化 TCP 並啟用 BBR") {
+                        appState.inlineAIAgentInput = "檢查這台伺服器是否支援 BBR 擁塞控制，配置優化核心網路參數並成功啟用 BBR"
+                        startDevOpsMission()
+                    }
+
+                    QuickAgentPill(title: "🔍 診斷伺服器負載") {
+                        appState.inlineAIAgentInput = "快速檢查目前伺服器的 CPU、記憶體、負載與磁碟空間"
+                        startDevOpsMission()
+                    }
+
+                    QuickAgentPill(title: "🧹 清理系統暫存與快取") {
+                        appState.inlineAIAgentInput = "安全清理系統 /tmp 暫存檔案與快取以釋放磁碟"
+                        startDevOpsMission()
+                    }
+
+                    QuickAgentPill(title: "🐳 檢查 Docker 容器") {
+                        appState.inlineAIAgentInput = "檢視正在運行的 Docker 容器與異常重啟狀態"
+                        startDevOpsMission()
+                    }
+
+                    QuickAgentPill(title: "🌐 排查端口佔用") {
+                        appState.inlineAIAgentInput = "檢查當前伺服器監聽的所有網路端口與連線狀態"
+                        startDevOpsMission()
+                    }
                 }
-
-                QuickAgentPill(title: "🔍 診斷伺服器負載") {
-                    appState.inlineAIAgentInput = "快速檢查目前伺服器的 CPU、記憶體、負載與磁碟空間"
-                    startDevOpsMission()
-                }
-
-                QuickAgentPill(title: "🧹 清理系統暫存與快取") {
-                    appState.inlineAIAgentInput = "安全清理系統 /tmp 暫存檔案與快取以釋放磁碟"
-                    startDevOpsMission()
-                }
-
-                QuickAgentPill(title: "🐳 檢查 Docker 容器") {
-                    appState.inlineAIAgentInput = "檢視正在運行的 Docker 容器與異常重啟狀態"
-                    startDevOpsMission()
-                }
-
-                QuickAgentPill(title: "🌐 排查端口佔用") {
-                    appState.inlineAIAgentInput = "檢查當前伺服器監聽的所有網路端口與連線狀態"
-                    startDevOpsMission()
-                }
-
-                Spacer()
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     private func startDevOpsMission() {
