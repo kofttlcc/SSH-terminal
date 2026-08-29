@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 public struct InlineTerminalAIAgentBarView: View {
     @ObservedObject var appState: AppState
@@ -21,61 +20,22 @@ public struct InlineTerminalAIAgentBarView: View {
                 )
                 .frame(height: appState.inlineAgentPanelHeight)
             } else {
-                // Default Natural Language Requirement Input Bar (Idle / Initial Connected State)
+                // Original Compact Natural Language Input Bar (Compact Layout, No forced empty space)
                 CompactAgentInputBarView(
                     sessionId: sessionId,
                     host: host,
                     appState: appState,
                     agentService: agentService
                 )
-                .frame(height: max(75, min(appState.inlineAgentPanelHeight, 260)))
             }
 
-            // Draggable Resize Bar Handle (Always active and visible in ALL states)
-            AgentResizeHandleView(appState: appState)
+            // Native macOS 60fps Smooth Draggable Resizer (Always present directly upon connecting)
+            NativeResizeDividerView(appState: appState, minHeight: 160, maxHeight: 850)
+                .frame(height: 8)
+                .frame(maxWidth: .infinity)
         }
         .background(Color(red: 15/255, green: 17/255, blue: 26/255))
         .overlay(Rectangle().frame(height: 1).foregroundColor(Color.purple.opacity(0.25)), alignment: .bottom)
-    }
-}
-
-// MARK: - Draggable Resize Handle (Always Active)
-struct AgentResizeHandleView: View {
-    @ObservedObject var appState: AppState
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Spacer()
-
-            // Visual Grip Handle
-            Capsule()
-                .fill(appState.isResizeHandleHovering ? Color.purple : Color.gray.opacity(0.45))
-                .frame(width: 48, height: 4)
-
-            Spacer()
-        }
-        .frame(height: 9)
-        .frame(maxWidth: .infinity)
-        .background(appState.isResizeHandleHovering ? Color.purple.opacity(0.18) : Color(red: 12/255, green: 14/255, blue: 20/255))
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            appState.isResizeHandleHovering = hovering
-            if hovering {
-                NSCursor.resizeUpDown.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { gesture in
-                    let newHeight = appState.inlineAgentInitialDragHeight + gesture.translation.height
-                    appState.inlineAgentPanelHeight = max(75, min(850, newHeight))
-                }
-                .onEnded { _ in
-                    appState.inlineAgentInitialDragHeight = appState.inlineAgentPanelHeight
-                }
-        )
     }
 }
 
@@ -467,7 +427,7 @@ struct StatusPillView: View {
     }
 }
 
-// MARK: - Compact Input Bar View (Idle State directly accessible with resizer)
+// MARK: - Compact Input Bar View (Original Clean Compact Layout)
 struct CompactAgentInputBarView: View {
     let sessionId: String
     let host: HostItem?
