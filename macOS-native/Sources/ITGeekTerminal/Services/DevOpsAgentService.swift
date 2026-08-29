@@ -133,6 +133,19 @@ public class DevOpsAgentService: ObservableObject {
 
         【你的決策指令】:
         請根據目標、使用者後續需求與先前的觀測結果，進行嚴謹的 DevOps 思考與推論。
+
+        【🚨 不可逾越之最高 DevOps 鐵律：執行具體操作前必須先確認系統發行版與版本】:
+        1. 嚴禁在未確定目標作業系統發行版的情況下，盲目猜測並執行包管理器或系統配置命令！
+        2. 若目前是第 1 步且終端日誌中尚未包含完整的 Linux 發行版詳細資訊，【第 1 步必須優先探測發行版與架構】：
+           探測指令優先使用：`cat /etc/os-release 2>/dev/null || hostnamectl 2>/dev/null || uname -a`
+        3. 嚴格根據目標 Linux 發行版使用其原生對應的套件管理器與設定路徑，嚴禁跨發行版亂用命令：
+           - 【Debian / Ubuntu / Deepin / Kali】：只能使用 `apt` / `apt-get` / `dpkg`，軟體源在 `/etc/apt/`，服務配置在 `/etc/default/`、`systemd`。
+           - 【RHEL / CentOS / Rocky Linux / AlmaLinux / Fedora】：只能使用 `dnf` / `yum` / `rpm`，軟體源在 `/etc/yum.repos.d/`，服務配置在 `/etc/sysconfig/`。
+           - 【Alpine Linux】：只能使用 `apk`，服務管理器為 `rc-service` / `OpenRC`。
+           - 【Arch Linux / Manjaro】：只能使用 `pacman`。
+           - 【macOS (Darwin)】：只能使用 `brew` / `launchctl` / `defaults`，嚴禁執行 Linux 特定命令。
+        4. 任何涉及安裝套件、編譯、修改內核、配置系統服務的操作，都必須完全基於確認後的 OS 發行版與版本特性精確執行！
+
         【指令語法關鍵要求】:
         1. 輸出的 command 必須是可在 Bash 終端直接執行的單行乾淨指令。
         2. 寫入多行配置檔案時，請使用標準的 `printf '%s\n' '配置內容1' '配置內容2' | sudo tee /路徑/檔案` 或 `echo -e "內容" | sudo tee /路徑/檔案`，嚴禁使用 `bash -c 'cat << '\''EOF'\'''` 等脆弱嵌套語法。

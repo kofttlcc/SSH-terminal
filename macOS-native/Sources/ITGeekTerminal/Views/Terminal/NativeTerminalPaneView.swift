@@ -69,6 +69,8 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         private var isTerminalReady: Bool = false
         private var pendingData: [Data] = []
         private var sessionStarted: Bool = false
+        private var isExplicitlyClosedByUser: Bool = false
+        private var reconnectAttempt: Int = 0
 
         init(_ parent: NativeTerminalPaneView) {
             self.parent = parent
@@ -172,8 +174,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                         self?.writeToXterm(data: data)
                     }
                     existingSSH.onClosed = { [weak self] in
-                        self?.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
-                        self?.writePlainText("\r\n\u{001B}[31m[連線已斷開]: SSH 會話已中斷連接。\u{001B}[0m\r\n")
+                        self?.handleSSHClosed(host: host, sid: sid)
                     }
                     existingSSH.onError = { [weak self] err in
                         self?.appState?.updatePaneStatus(sessionId: sid, status: "error", errorMessage: err)
@@ -182,76 +183,108 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     return
                 }
 
-                let hostKey = appState.vault.keys.first(where: { $0.id == host.keyId })
-                let fallbackKey = appState.vault.keys.first(where: { $0.id == host.fallbackKeyId })
+                connectSSH(host: host, sid: sid, isAutoReconnect: false)
+            }
+        }
 
-                // Touch ID requirement
-                let keyRequiresTouchId = (hostKey?.touchIdProtected == true) ||
-                                         (fallbackKey?.touchIdProtected == true)
+        private func connectSSH(host: HostItem, sid: String, isAutoReconnect: Bool = false) {
+            guard let appState = self.appState else { return }
 
-                let needsTouchId = (host.requireTouchId == true) ||
-                                   (appState.vault.settings.touchIdForHosts == true) ||
-                                   (host.touchIdForKey == true) ||
-                                   keyRequiresTouchId
+            let hostKey = appState.vault.keys.first(where: { $0.id == host.keyId })
+            let fallbackKey = appState.vault.keys.first(where: { $0.id == host.fallbackKeyId })
 
-                let ssh = SSHSession(sessionId: sid, host: host)
-                appState.sshSessions[sid] = ssh
+            let keyRequiresTouchId = (hostKey?.touchIdProtected == true) ||
+                                     (fallbackKey?.touchIdProtected == true)
 
-                ssh.onDataReceived = { [weak self] data in
-                    self?.appState?.updatePaneStatus(sessionId: sid, status: "connected")
-                    self?.writeToXterm(data: data)
+            let needsTouchId = (host.requireTouchId == true) ||
+                               (appState.vault.settings.touchIdForHosts == true) ||
+                               (host.touchIdForKey == true) ||
+                               keyRequiresTouchId
+
+            let ssh = SSHSession(sessionId: sid, host: host)
+            appState.sshSessions[sid] = ssh
+
+            ssh.onDataReceived = { [weak self] data in
+                guard let self = self else { return }
+                if self.reconnectAttempt > 0 {
+                    self.writePlainText("\r\n\u{001B}[32m[自動重連成功]: 已成功重新連線至 \(host.label) 並恢復終端通訊！\u{001B}[0m\r\n")
+                    self.reconnectAttempt = 0
                 }
+                self.appState?.updatePaneStatus(sessionId: sid, status: "connected")
+                self.writeToXterm(data: data)
+            }
 
-                ssh.onClosed = { [weak self] in
-                    self?.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
-                    self?.writePlainText("\r\n\u{001B}[31m[連線已斷開]: SSH 會話已中斷連接。\u{001B}[0m\r\n")
-                }
+            ssh.onClosed = { [weak self] in
+                self?.handleSSHClosed(host: host, sid: sid)
+            }
 
-                ssh.onError = { [weak self] err in
-                    self?.appState?.updatePaneStatus(sessionId: sid, status: "error", errorMessage: err)
-                    self?.writePlainText("\r\n\u{001B}[31m[SSH 連線錯誤]: \(err)\u{001B}[0m\r\n")
-                }
+            ssh.onError = { [weak self] err in
+                self?.appState?.updatePaneStatus(sessionId: sid, status: "error", errorMessage: err)
+                self?.writePlainText("\r\n\u{001B}[31m[SSH 連線錯誤]: \(err)\u{001B}[0m\r\n")
+            }
 
-                if needsTouchId {
-                    let keyDisplayName = hostKey?.name ?? fallbackKey?.name ?? host.label
-                    self.writePlainText("\u{001B}[35m[Touch ID 指紋安全授權]: 正在調用「\(keyDisplayName)」私鑰，請在彈出的系統指紋對話框按壓 Touch ID...\u{001B}[0m\r\n")
-                    Task {
-                        let res = await BiometricsService.shared.promptTouchID(
-                            reason: "調用「\(keyDisplayName)」私鑰認證伺服器「\(host.label)」，請驗證 Touch ID 指紋"
-                        )
-                        if !res.success {
-                            self.writePlainText("\r\n\u{001B}[31m[Touch ID 認證未通過]: \(res.error ?? "指紋識別未授權或已取消，連線已終止。")\u{001B}[0m\r\n")
-                            appState.updatePaneStatus(sessionId: sid, status: "disconnected")
-                            appState.sshSessions.removeValue(forKey: sid)
-                            return
-                        }
-                        self.writePlainText("\u{001B}[32m[Touch ID 驗證成功]: 指紋授權通過，正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\u{001B}[0m\r\n")
-                        _ = ssh.connect()
-                    }
-                } else if host.authType == .yubikey {
-                    let yubiKey = appState.vault.keys.first(where: { $0.id == host.yubikeyKeyId })
-                    let serial = yubiKey?.yubikeySerial ?? "YK-17891328"
-                    let keyDisplayName = yubiKey?.name ?? hostKey?.name ?? "YubiKey 5 FIDO2/PIV"
+            if isAutoReconnect {
+                _ = ssh.connect()
+                return
+            }
 
-                    self.writePlainText("\u{001B}[33m[YubiKey 硬體認證]: 正在調用 YubiKey 5 實體硬體金鑰「\(keyDisplayName)」，請觸碰設備金屬環...\u{001B}[0m\r\n")
-
-                    appState.yubikeyTouchPrompt = YubiKeyTouchPromptData(
-                        hostLabel: host.label,
-                        keyName: keyDisplayName,
-                        serial: serial,
-                        onConfirm: {
-                            _ = ssh.connect()
-                        },
-                        onCancel: { [weak self] in
-                            self?.writePlainText("\r\n\u{001B}[31m[YubiKey 認證已取消]: 連線已終止。\u{001B}[0m\r\n")
-                            appState.updatePaneStatus(sessionId: sid, status: "disconnected")
-                            appState.sshSessions.removeValue(forKey: sid)
-                        }
+            if needsTouchId {
+                let keyDisplayName = hostKey?.name ?? fallbackKey?.name ?? host.label
+                self.writePlainText("\u{001B}[35m[Touch ID 指紋安全授權]: 正在調用「\(keyDisplayName)」私鑰，請在彈出的系統指紋對話框按壓 Touch ID...\u{001B}[0m\r\n")
+                Task {
+                    let res = await BiometricsService.shared.promptTouchID(
+                        reason: "調用「\(keyDisplayName)」私鑰認證伺服器「\(host.label)」，請驗證 Touch ID 指紋"
                     )
-                } else {
-                    self.writePlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n")
+                    if !res.success {
+                        self.writePlainText("\r\n\u{001B}[31m[Touch ID 認證未通過]: \(res.error ?? "指紋識別未授權或已取消，連線已終止。")\u{001B}[0m\r\n")
+                        self.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
+                        self.appState?.sshSessions.removeValue(forKey: sid)
+                        return
+                    }
+                    self.writePlainText("\u{001B}[32m[Touch ID 驗證成功]: 指紋授權通過，正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\u{001B}[0m\r\n")
                     _ = ssh.connect()
                 }
+            } else if host.authType == .yubikey {
+                let yubiKey = appState.vault.keys.first(where: { $0.id == host.yubikeyKeyId })
+                let serial = yubiKey?.yubikeySerial ?? "YK-17891328"
+                let keyDisplayName = yubiKey?.name ?? hostKey?.name ?? "YubiKey 5 FIDO2/PIV"
+
+                self.writePlainText("\u{001B}[33m[YubiKey 硬體認證]: 正在調用 YubiKey 5 實體硬體金鑰「\(keyDisplayName)」，請觸碰設備金屬環...\u{001B}[0m\r\n")
+
+                appState.yubikeyTouchPrompt = YubiKeyTouchPromptData(
+                    hostLabel: host.label,
+                    keyName: keyDisplayName,
+                    serial: serial,
+                    onConfirm: {
+                        _ = ssh.connect()
+                    },
+                    onCancel: { [weak self] in
+                        self?.writePlainText("\r\n\u{001B}[31m[YubiKey 認證已取消]: 連線已終止。\u{001B}[0m\r\n")
+                        self?.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
+                        self?.appState?.sshSessions.removeValue(forKey: sid)
+                    }
+                )
+            } else {
+                self.writePlainText("正在建立原生 SSH 連線至 \(host.label) (\(host.hostname):\(host.port))...\r\n")
+                _ = ssh.connect()
+            }
+        }
+
+        private func handleSSHClosed(host: HostItem, sid: String) {
+            self.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
+            if !self.isExplicitlyClosedByUser && self.reconnectAttempt < 5 {
+                self.reconnectAttempt += 1
+                let delay = Double(min(15, self.reconnectAttempt * 3))
+                self.writePlainText("\r\n\u{001B}[33m[連線中斷 | 保活重連]: SSH 連線已斷開，將在 \(Int(delay)) 秒後進行第 \(self.reconnectAttempt)/5 次自動重連...\u{001B}[0m\r\n")
+                self.appState?.updatePaneStatus(sessionId: sid, status: "connecting")
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self = self, !self.isExplicitlyClosedByUser else { return }
+                    self.writePlainText("\u{001B}[36m[自動重連]: 正在重新連線至 \(host.label) (\(host.hostname):\(host.port))...\u{001B}[0m\r\n")
+                    self.connectSSH(host: host, sid: sid, isAutoReconnect: true)
+                }
+            } else {
+                self.writePlainText("\r\n\u{001B}[31m[連線已中斷]: SSH 會話已終止連接。\u{001B}[0m\r\n")
             }
         }
 

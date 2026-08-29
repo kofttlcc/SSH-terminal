@@ -41,8 +41,10 @@ public class SSHSession {
             "-p", "\(host.port)",
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ServerAliveInterval=15",
-            "-o", "ServerAliveCountMax=3",
-            "-o", "ConnectTimeout=15"
+            "-o", "ServerAliveCountMax=4",
+            "-o", "TCPKeepAlive=yes",
+            "-o", "ConnectTimeout=10",
+            "-o", "ExitOnForwardFailure=no"
         ]
 
         if host.agentForward == true {
