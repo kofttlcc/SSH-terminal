@@ -9,28 +9,30 @@ public struct InlineTerminalAIAgentBarView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            if let mission = agentService.activeMissions[sessionId], mission.status != .idle && mission.status != .cancelled {
-                // Active Multi-step DevOps Mission Card (Fixed User-Locked Height)
-                ActiveMissionDashboardView(
-                    mission: mission,
-                    sessionId: sessionId,
-                    host: host,
-                    appState: appState,
-                    agentService: agentService
-                )
-                .frame(height: appState.inlineAgentPanelHeight)
-            } else {
-                // Original Compact Natural Language Input Bar (Compact Layout, No forced empty space)
-                CompactAgentInputBarView(
-                    sessionId: sessionId,
-                    host: host,
-                    appState: appState,
-                    agentService: agentService
-                )
+            Group {
+                if let mission = agentService.activeMissions[sessionId], mission.status != .idle && mission.status != .cancelled {
+                    // Active Multi-step DevOps Mission Card
+                    ActiveMissionDashboardView(
+                        mission: mission,
+                        sessionId: sessionId,
+                        host: host,
+                        appState: appState,
+                        agentService: agentService
+                    )
+                } else {
+                    // Compact / Expandable Initial Input Bar
+                    CompactAgentInputBarView(
+                        sessionId: sessionId,
+                        host: host,
+                        appState: appState,
+                        agentService: agentService
+                    )
+                }
             }
+            .frame(height: appState.inlineAgentPanelHeight)
 
             // Native macOS 60fps Smooth Draggable Resizer (Always present directly upon connecting)
-            NativeResizeDividerView(appState: appState, minHeight: 160, maxHeight: 850)
+            NativeResizeDividerView(appState: appState, minHeight: 65, maxHeight: 850)
                 .frame(height: 8)
                 .frame(maxWidth: .infinity)
         }
@@ -156,6 +158,10 @@ struct ActiveMissionDashboardView: View {
                 // Close / Reset Mission Button
                 Button(action: {
                     agentService.cancelMission(sessionId: sessionId, appState: appState)
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        appState.inlineAgentPanelHeight = 72
+                        appState.inlineAgentInitialDragHeight = 72
+                    }
                 }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
@@ -366,6 +372,10 @@ struct ActiveMissionDashboardView: View {
 
                 Button("結束任務") {
                     agentService.cancelMission(sessionId: sessionId, appState: appState)
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        appState.inlineAgentPanelHeight = 72
+                        appState.inlineAgentInitialDragHeight = 72
+                    }
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10))
@@ -427,7 +437,7 @@ struct StatusPillView: View {
     }
 }
 
-// MARK: - Compact Input Bar View (Original Clean Compact Layout)
+// MARK: - Compact / Expandable Input Bar View (Idle State directly resizable)
 struct CompactAgentInputBarView: View {
     let sessionId: String
     let host: HostItem?
@@ -537,14 +547,24 @@ struct CompactAgentInputBarView: View {
                     }
                 }
             }
+
+            Spacer()
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func startDevOpsMission() {
         let goal = appState.inlineAIAgentInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !goal.isEmpty else { return }
+
+        if appState.inlineAgentPanelHeight < 280 {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                appState.inlineAgentPanelHeight = 360
+                appState.inlineAgentInitialDragHeight = 360
+            }
+        }
 
         appState.inlineAIAgentInput = ""
         agentService.startMission(

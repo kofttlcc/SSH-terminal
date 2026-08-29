@@ -22,8 +22,8 @@ public class AppState: ObservableObject {
     @Published public var inlineAIAgentInput: String = ""
     @Published public var inlineAgentFollowUpText: String = ""
     @Published public var inlineAgentHistoryExpanded: Bool = false
-    @Published public var inlineAgentPanelHeight: CGFloat = 340
-    @Published public var inlineAgentInitialDragHeight: CGFloat = 340
+    @Published public var inlineAgentPanelHeight: CGFloat = 72
+    @Published public var inlineAgentInitialDragHeight: CGFloat = 72
     @Published public var isResizeHandleHovering: Bool = false
     @Published public var isAIAgentAutoRun: Bool = true
     @Published public var isAIAgentRunning: Bool = false
