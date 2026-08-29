@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 public struct InlineTerminalAIAgentBarView: View {
     @ObservedObject var appState: AppState
@@ -10,7 +11,7 @@ public struct InlineTerminalAIAgentBarView: View {
     public var body: some View {
         VStack(spacing: 0) {
             if let mission = agentService.activeMissions[sessionId], mission.status != .idle && mission.status != .cancelled {
-                // Active Multi-step DevOps Mission Card with Ongoing Follow-up Dialogue
+                // Active Multi-step DevOps Mission Card with Draggable Resizer & Follow-up Dialogue
                 ActiveMissionDashboardView(
                     mission: mission,
                     sessionId: sessionId,
@@ -18,6 +19,9 @@ public struct InlineTerminalAIAgentBarView: View {
                     appState: appState,
                     agentService: agentService
                 )
+
+                // Draggable Resize Bar Handle
+                AgentResizeHandleView(appState: appState)
             } else {
                 // Default Natural Language Requirement Input Bar
                 CompactAgentInputBarView(
@@ -33,13 +37,57 @@ public struct InlineTerminalAIAgentBarView: View {
     }
 }
 
-// MARK: - Active Mission Dashboard View (with Continuous Follow-up Support)
+// MARK: - Draggable Resize Handle
+struct AgentResizeHandleView: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Spacer()
+
+            // Visual Grip Handle
+            Capsule()
+                .fill(appState.isResizeHandleHovering ? Color.purple : Color.gray.opacity(0.4))
+                .frame(width: 42, height: 4)
+
+            Spacer()
+        }
+        .frame(height: 8)
+        .frame(maxWidth: .infinity)
+        .background(appState.isResizeHandleHovering ? Color.purple.opacity(0.12) : Color.black.opacity(0.2))
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            appState.isResizeHandleHovering = hovering
+            if hovering {
+                NSCursor.resizeUpDown.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { gesture in
+                    let newHeight = appState.inlineAgentInitialDragHeight + gesture.translation.height
+                    appState.inlineAgentPanelHeight = max(160, min(800, newHeight))
+                }
+                .onEnded { _ in
+                    appState.inlineAgentInitialDragHeight = appState.inlineAgentPanelHeight
+                }
+        )
+    }
+}
+
+// MARK: - Active Mission Dashboard View (with Continuous Follow-up & Dynamic Height)
 struct ActiveMissionDashboardView: View {
     let mission: DevOpsMission
     let sessionId: String
     let host: HostItem?
     @ObservedObject var appState: AppState
     @ObservedObject var agentService: DevOpsAgentService
+
+    private var calculatedContentHeight: CGFloat {
+        max(120, appState.inlineAgentPanelHeight - 110)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -59,6 +107,49 @@ struct ActiveMissionDashboardView: View {
                 }
 
                 Spacer()
+
+                // Height Preset Buttons
+                HStack(spacing: 3) {
+                    Button("緊湊") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            appState.inlineAgentPanelHeight = 220
+                            appState.inlineAgentInitialDragHeight = 220
+                        }
+                    }
+                    .font(.system(size: 9))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(appState.inlineAgentPanelHeight <= 240 ? Color.purple.opacity(0.3) : Color.black.opacity(0.2))
+                    .cornerRadius(3)
+                    .buttonStyle(.plain)
+
+                    Button("標準") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            appState.inlineAgentPanelHeight = 360
+                            appState.inlineAgentInitialDragHeight = 360
+                        }
+                    }
+                    .font(.system(size: 9))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background((appState.inlineAgentPanelHeight > 240 && appState.inlineAgentPanelHeight <= 450) ? Color.purple.opacity(0.3) : Color.black.opacity(0.2))
+                    .cornerRadius(3)
+                    .buttonStyle(.plain)
+
+                    Button("全覽") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            appState.inlineAgentPanelHeight = 560
+                            appState.inlineAgentInitialDragHeight = 560
+                        }
+                    }
+                    .font(.system(size: 9))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(appState.inlineAgentPanelHeight > 450 ? Color.purple.opacity(0.3) : Color.black.opacity(0.2))
+                    .cornerRadius(3)
+                    .buttonStyle(.plain)
+                }
+                .foregroundColor(.gray)
 
                 // Status Pill
                 StatusPillView(status: mission.status, currentStep: mission.steps.count)
@@ -149,8 +240,35 @@ struct ActiveMissionDashboardView: View {
                 .frame(maxHeight: 120)
             }
 
-            // Current Step Details
-            if let currentStep = mission.steps.last, mission.status != .completed {
+            // Dynamic Content Area (Steps or Conclusion Report)
+            if mission.status == .completed, let conclusion = mission.finalConclusion {
+                // Mission Conclusion (Full Dynamic Height Report)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(.green)
+                            .font(.system(size: 13))
+                        Text("任務階段結論與分析報告:")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.green)
+                        Spacer()
+                    }
+
+                    ScrollView(.vertical, showsIndicators: true) {
+                        Text(conclusion)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.white)
+                            .lineSpacing(4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(height: calculatedContentHeight)
+                }
+                .padding(8)
+                .background(Color.green.opacity(0.12))
+                .cornerRadius(6)
+            } else if let currentStep = mission.steps.last {
+                // Current Step Execution Details
                 VStack(alignment: .leading, spacing: 6) {
                     // Step Title & Thought
                     HStack(alignment: .top, spacing: 6) {
@@ -203,7 +321,7 @@ struct ActiveMissionDashboardView: View {
                             Text(currentStep.observation)
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundColor(.orange.opacity(0.9))
-                                .lineLimit(2)
+                                .lineLimit(3)
                         }
                     }
                 }
@@ -219,33 +337,6 @@ struct ActiveMissionDashboardView: View {
                         .foregroundColor(.purple)
                 }
                 .padding(8)
-            }
-
-            // Mission Conclusion (When Completed / Analyzed)
-            if mission.status == .completed, let conclusion = mission.finalConclusion {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundColor(.green)
-                            .font(.system(size: 13))
-                        Text("任務階段結論與分析報告:")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.green)
-                        Spacer()
-                    }
-
-                    ScrollView(.vertical, showsIndicators: true) {
-                        Text(conclusion)
-                            .font(.system(size: 11))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxHeight: 140)
-                }
-                .padding(8)
-                .background(Color.green.opacity(0.12))
-                .cornerRadius(6)
             }
 
             // Action Buttons for Step-by-Step Approval Mode
