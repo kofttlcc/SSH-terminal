@@ -358,6 +358,28 @@ public class CustomTerminalWebView: WKWebView {
     public weak var appState: AppState?
     public var sessionId: String = ""
     public var tabId: String = ""
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        DispatchQueue.main.async { [weak self] in
+            self?.evaluateJavaScript("if (window.fitTerminal) { window.fitTerminal(); }", completionHandler: nil)
+        }
+    }
+
+    public override func layout() {
+        super.layout()
+        DispatchQueue.main.async { [weak self] in
+            self?.evaluateJavaScript("if (window.fitTerminal) { window.fitTerminal(); }", completionHandler: nil)
+        }
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.evaluateJavaScript("if (window.fitTerminal) { window.fitTerminal(); window.focusTerminal(); }", completionHandler: nil)
+            }
+        }
+    }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

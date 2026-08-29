@@ -14,22 +14,34 @@
         html, body {
             width: 100%;
             height: 100%;
+            margin: 0;
+            padding: 0;
             overflow: hidden;
             background-color: #090a0f;
             user-select: none;
             -webkit-user-select: none;
         }
         #terminal-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             width: 100%;
             height: 100%;
-            padding: 4px 6px;
+            padding: 2px 4px;
+            overflow: hidden;
         }
         .xterm {
-            height: 100%;
+            width: 100% !important;
+            height: 100% !important;
             font-feature-settings: "liga" 0;
             position: relative;
             user-select: text;
             -webkit-user-select: text;
+        }
+        .xterm .xterm-screen {
+            width: 100% !important;
         }
         .xterm .xterm-viewport {
             background-color: #090a0f !important;
@@ -104,10 +116,18 @@
             // Safe Addon Loading
             let fitAddon = null;
             try {
-                if (typeof FitAddon === 'function') {
-                    fitAddon = new FitAddon();
-                } else if (typeof FitAddon === 'object' && typeof FitAddon.FitAddon === 'function') {
-                    fitAddon = new FitAddon.FitAddon();
+                if (typeof FitAddon !== 'undefined') {
+                    if (typeof FitAddon === 'function') {
+                        fitAddon = new FitAddon();
+                    } else if (typeof FitAddon.FitAddon === 'function') {
+                        fitAddon = new FitAddon.FitAddon();
+                    }
+                } else if (typeof window.FitAddon !== 'undefined') {
+                    if (typeof window.FitAddon.FitAddon === 'function') {
+                        fitAddon = new window.FitAddon.FitAddon();
+                    } else if (typeof window.FitAddon === 'function') {
+                        fitAddon = new window.FitAddon();
+                    }
                 }
                 if (fitAddon) {
                     term.loadAddon(fitAddon);
@@ -117,22 +137,33 @@
             }
 
             try {
-                if (typeof Unicode11Addon === 'function') {
-                    const u11 = new Unicode11Addon();
-                    term.loadAddon(u11);
-                    term.unicode.activeVersion = '11';
-                } else if (typeof Unicode11Addon === 'object' && typeof Unicode11Addon.Unicode11Addon === 'function') {
-                    const u11 = new Unicode11Addon.Unicode11Addon();
-                    term.loadAddon(u11);
-                    term.unicode.activeVersion = '11';
+                if (typeof Unicode11Addon !== 'undefined') {
+                    let u11 = null;
+                    if (typeof Unicode11Addon === 'function') {
+                        u11 = new Unicode11Addon();
+                    } else if (typeof Unicode11Addon.Unicode11Addon === 'function') {
+                        u11 = new Unicode11Addon.Unicode11Addon();
+                    }
+                    if (u11) {
+                        term.loadAddon(u11);
+                        term.unicode.activeVersion = '11';
+                    }
                 }
             } catch (e) {
                 console.warn("Unicode11Addon error:", e);
             }
 
             term.open(container);
-            if (fitAddon) {
-                fitAddon.fit();
+
+            function doFit() {
+                if (!fitAddon || !term) return;
+                try {
+                    if (container && container.clientWidth > 10 && container.clientHeight > 10) {
+                        fitAddon.fit();
+                    }
+                } catch (e) {
+                    console.warn("doFit error:", e);
+                }
             }
 
             // Keystrokes -> Swift
@@ -152,24 +183,26 @@
                 }
             });
 
-            // Initial notify of size
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.terminalResize) {
-                window.webkit.messageHandlers.terminalResize.postMessage({
-                    cols: term.cols,
-                    rows: term.rows
+            // Responsive Layout Observers
+            if (window.ResizeObserver) {
+                const resizeObserver = new ResizeObserver(function() {
+                    requestAnimationFrame(doFit);
                 });
+                resizeObserver.observe(container);
+                resizeObserver.observe(document.body);
             }
 
-            // Window resize handler with debounce
-            let resizeTimeout = null;
             window.addEventListener('resize', function() {
-                clearTimeout(resizeTimeout);
-                resizeTimeout = setTimeout(function() {
-                    if (fitAddon) {
-                        fitAddon.fit();
-                    }
-                }, 30);
+                requestAnimationFrame(doFit);
             });
+
+            // Lifecycle progressive auto-fits (ensures font metrics and canvas are measured)
+            requestAnimationFrame(doFit);
+            setTimeout(doFit, 50);
+            setTimeout(doFit, 150);
+            setTimeout(doFit, 300);
+            setTimeout(doFit, 600);
+            setTimeout(doFit, 1200);
 
             // Swift APIs
             window.writeTerminalData = function(base64) {
@@ -190,9 +223,7 @@
             };
 
             window.fitTerminal = function() {
-                if (fitAddon) {
-                    fitAddon.fit();
-                }
+                requestAnimationFrame(doFit);
             };
 
             window.focusTerminal = function() {

@@ -104,6 +104,9 @@ public class LocalPtySession {
         guard masterFd >= 0 else { return }
         var win = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
         _ = ioctl(masterFd, TIOCSWINSZ, &win)
+        if let proc = process, proc.isRunning {
+            kill(proc.processIdentifier, SIGWINCH)
+        }
     }
 
     public func terminate() {
