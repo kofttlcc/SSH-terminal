@@ -70,6 +70,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
         private var pendingData: [Data] = []
         private var sessionStarted: Bool = false
         private var isExplicitlyClosedByUser: Bool = false
+        private var isUserInitiatedExit: Bool = false
         private var reconnectAttempt: Int = 0
 
         init(_ parent: NativeTerminalPaneView) {
@@ -122,6 +123,13 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 webView.evaluateJavaScript("if (window.fitTerminal) { window.fitTerminal(); window.focusTerminal(); }", completionHandler: nil)
             } else if message.name == "terminalData" {
                 if let str = message.body as? String, let data = str.data(using: .utf8) {
+                    let lower = str.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                    if lower == "exit" || lower == "logout" || str.contains("exit\r") || str.contains("exit\n") || str.contains("logout\r") || str.contains("logout\n") || str == "\u{04}" {
+                        self.isUserInitiatedExit = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+                            self?.isUserInitiatedExit = false
+                        }
+                    }
                     appState.sendDataToSession(sessionId: sid, data: data)
                 }
             } else if message.name == "terminalResize" {
@@ -173,8 +181,8 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                         self?.appState?.updatePaneStatus(sessionId: sid, status: "connected")
                         self?.writeToXterm(data: data)
                     }
-                    existingSSH.onClosed = { [weak self] in
-                        self?.handleSSHClosed(host: host, sid: sid)
+                    existingSSH.onClosed = { [weak self] exitCode in
+                        self?.handleSSHClosed(host: host, sid: sid, exitCode: exitCode)
                     }
                     existingSSH.onError = { [weak self] err in
                         self?.appState?.updatePaneStatus(sessionId: sid, status: "error", errorMessage: err)
@@ -231,8 +239,8 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 self.writeToXterm(data: data)
             }
 
-            ssh.onClosed = { [weak self] in
-                self?.handleSSHClosed(host: host, sid: sid)
+            ssh.onClosed = { [weak self] exitCode in
+                self?.handleSSHClosed(host: host, sid: sid, exitCode: exitCode)
             }
 
             ssh.onError = { [weak self] err in
@@ -287,12 +295,20 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
             }
         }
 
-        private func handleSSHClosed(host: HostItem, sid: String) {
+        private func handleSSHClosed(host: HostItem, sid: String, exitCode: Int32) {
             self.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
-            if !self.isExplicitlyClosedByUser && self.reconnectAttempt < 5 {
+
+            // Distinguish normal user exit from abnormal network/server drop
+            let isNormalExit = (exitCode == 0) || self.isUserInitiatedExit
+
+            if isNormalExit {
+                self.reconnectAttempt = 0
+                self.isUserInitiatedExit = false
+                self.writePlainText("\r\n\u{001B}[32m[會話已結束]: 使用者手動退出連線 (exit \(exitCode))。如需重新連線，請點擊上方「一鍵重連」按鈕。\u{001B}[0m\r\n")
+            } else if !self.isExplicitlyClosedByUser && self.reconnectAttempt < 5 {
                 self.reconnectAttempt += 1
                 let delay = Double(min(15, self.reconnectAttempt * 3))
-                self.writePlainText("\r\n\u{001B}[33m[連線中斷 | 保活重連]: SSH 連線已斷開，將在 \(Int(delay)) 秒後進行第 \(self.reconnectAttempt)/5 次自動重連...\u{001B}[0m\r\n")
+                self.writePlainText("\r\n\u{001B}[33m[異常中斷 | 觸發自動重連]: 檢測到網路異常中斷或伺服器重啟 (Exit Code: \(exitCode))，將在 \(Int(delay)) 秒後進行第 \(self.reconnectAttempt)/5 次自動重連...\u{001B}[0m\r\n")
                 self.appState?.updatePaneStatus(sessionId: sid, status: "connecting")
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -301,7 +317,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     self.connectSSH(host: host, sid: sid, isAutoReconnect: true)
                 }
             } else {
-                self.writePlainText("\r\n\u{001B}[31m[連線已中斷]: SSH 會話已終止連接。\u{001B}[0m\r\n")
+                self.writePlainText("\r\n\u{001B}[31m[連線已中斷]: SSH 連線已終止。\u{001B}[0m\r\n")
             }
         }
 

@@ -10,7 +10,7 @@ public class SSHSession {
     private var tempKeyFilePath: String?
     private var hasAutoFilledPassword: Bool = false
     public var onDataReceived: ((Data) -> Void)?
-    public var onClosed: (() -> Void)?
+    public var onClosed: ((Int32) -> Void)?
     public var onError: ((String) -> Void)?
 
     public init(sessionId: String, host: HostItem) {
@@ -96,10 +96,11 @@ public class SSHSession {
         proc.standardOutput = slaveHandle
         proc.standardError = slaveHandle
 
-        proc.terminationHandler = { [weak self] _ in
+        proc.terminationHandler = { [weak self] p in
             self?.cleanupTempKey()
+            let status = p.terminationStatus
             DispatchQueue.main.async {
-                self?.onClosed?()
+                self?.onClosed?(status)
             }
         }
 
@@ -146,8 +147,9 @@ public class SSHSession {
             } else if bytesRead == 0 {
                 source.cancel()
                 self.cleanupTempKey()
+                let status = self.process?.terminationStatus ?? 0
                 DispatchQueue.main.async {
-                    self.onClosed?()
+                    self.onClosed?(status)
                 }
             }
         }
