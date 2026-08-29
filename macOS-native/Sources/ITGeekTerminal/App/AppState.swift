@@ -38,6 +38,7 @@ public class AppState: ObservableObject {
     public var localSessions: [String: LocalPtySession] = [:]
     public var sshSessions: [String: SSHSession] = [:]
     public var terminalStorages: [String: NSTextStorage] = [:]
+    public var reconnectHandlers: [String: () -> Void] = [:]
     @Published public var sessionBuffers: [String: String] = [:]
 
     // UI Overlays & Modals
@@ -206,6 +207,14 @@ public class AppState: ObservableObject {
                     }
                 }
             }
+        }
+    }
+
+    public func triggerReconnect(sessionId: String) {
+        if let handler = reconnectHandlers[sessionId] {
+            handler()
+        } else {
+            addToast("info", "正在嘗試重新建立連線...")
         }
     }
 

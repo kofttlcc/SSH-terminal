@@ -68,6 +68,26 @@ struct ActiveMissionDashboardView: View {
 
                 Spacer()
 
+                // Reconnect Now Button
+                if host != nil {
+                    Button(action: {
+                        appState.triggerReconnect(sessionId: sessionId)
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("一鍵重連")
+                        }
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.cyan)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.cyan.opacity(0.2))
+                        .cornerRadius(3)
+                    }
+                    .buttonStyle(.plain)
+                    .help("立即重新連線至此遠端主機並切換至 root 環境")
+                }
+
                 // Height Preset Buttons
                 HStack(spacing: 3) {
                     Button("緊湊") {
@@ -496,6 +516,27 @@ struct CompactAgentInputBarView: View {
                 }
                 .buttonStyle(.plain)
                 .help("全自動閉環：AI 智能體自動執行、獲取輸出、分析結果並連續推進")
+
+                // Reconnect Now Button
+                if host != nil {
+                    Button(action: {
+                        appState.triggerReconnect(sessionId: sessionId)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("一鍵重連")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(.cyan)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color.cyan.opacity(0.15))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .help("手動立即重新連線至此主機並切換至 root 環境")
+                }
 
                 // Execute Button
                 Button(action: startDevOpsMission) {

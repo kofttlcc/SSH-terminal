@@ -183,6 +183,13 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                     return
                 }
 
+                appState.reconnectHandlers[sid] = { [weak self] in
+                    guard let self = self else { return }
+                    self.writePlainText("\r\n\u{001B}[36m[手動重連]: 正在重新連線至 \(host.label) (\(host.hostname):\(host.port))...\u{001B}[0m\r\n")
+                    self.reconnectAttempt = 0
+                    self.connectSSH(host: host, sid: sid, isAutoReconnect: true)
+                }
+
                 connectSSH(host: host, sid: sid, isAutoReconnect: false)
             }
         }
@@ -206,9 +213,19 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
 
             ssh.onDataReceived = { [weak self] data in
                 guard let self = self else { return }
-                if self.reconnectAttempt > 0 {
-                    self.writePlainText("\r\n\u{001B}[32m[自動重連成功]: 已成功重新連線至 \(host.label) 並恢復終端通訊！\u{001B}[0m\r\n")
+                if self.reconnectAttempt > 0 || isAutoReconnect {
+                    self.writePlainText("\r\n\u{001B}[32m[重連成功]: 已成功重新連線至 \(host.label) 並恢復終端通訊！\u{001B}[0m\r\n")
                     self.reconnectAttempt = 0
+
+                    // Auto-execute sudo su to restore root environment for seamless Agent operations
+                    if host.username.lowercased() != "root" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                            self?.writePlainText("\u{001B}[35m[環境自適應]: 自動執行 sudo su 切換至 root 環境...\u{001B}[0m\r\n")
+                            if let sudoData = "sudo su\n".data(using: .utf8) {
+                                self?.appState?.sendDataToSession(sessionId: sid, data: sudoData)
+                            }
+                        }
+                    }
                 }
                 self.appState?.updatePaneStatus(sessionId: sid, status: "connected")
                 self.writeToXterm(data: data)
