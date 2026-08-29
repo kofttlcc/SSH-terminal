@@ -219,18 +219,24 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
             let ssh = SSHSession(sessionId: sid, host: host)
             appState.sshSessions[sid] = ssh
 
+            var isFirstDataPacket = true
+            let wasReconnecting = isAutoReconnect || (self.reconnectAttempt > 0)
+
             ssh.onDataReceived = { [weak self] data in
                 guard let self = self else { return }
-                if self.reconnectAttempt > 0 || isAutoReconnect {
-                    self.writePlainText("\r\n\u{001B}[32m[重連成功]: 已成功重新連線至 \(host.label) 並恢復終端通訊！\u{001B}[0m\r\n")
-                    self.reconnectAttempt = 0
+                if isFirstDataPacket {
+                    isFirstDataPacket = false
+                    if wasReconnecting {
+                        self.writePlainText("\r\n\u{001B}[32m[重連成功]: 已成功重新連線至 \(host.label) 並恢復終端通訊！\u{001B}[0m\r\n")
+                        self.reconnectAttempt = 0
 
-                    // Auto-execute sudo su to restore root environment for seamless Agent operations
-                    if host.username.lowercased() != "root" {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                            self?.writePlainText("\u{001B}[35m[環境自適應]: 自動執行 sudo su 切換至 root 環境...\u{001B}[0m\r\n")
-                            if let sudoData = "sudo su\n".data(using: .utf8) {
-                                self?.appState?.sendDataToSession(sessionId: sid, data: sudoData)
+                        // Auto-execute sudo su ONCE to restore root environment for seamless Agent operations
+                        if host.username.lowercased() != "root" {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                                self?.writePlainText("\u{001B}[35m[環境自適應]: 自動執行 sudo su 切換至 root 環境...\u{001B}[0m\r\n")
+                                if let sudoData = "sudo su\n".data(using: .utf8) {
+                                    self?.appState?.sendDataToSession(sessionId: sid, data: sudoData)
+                                }
                             }
                         }
                     }
