@@ -11,7 +11,7 @@ public struct InlineTerminalAIAgentBarView: View {
     public var body: some View {
         VStack(spacing: 0) {
             if let mission = agentService.activeMissions[sessionId], mission.status != .idle && mission.status != .cancelled {
-                // Active Multi-step DevOps Mission Card with Draggable Resizer & Follow-up Dialogue
+                // Active Multi-step DevOps Mission Card (Fixed User-Locked Height)
                 ActiveMissionDashboardView(
                     mission: mission,
                     sessionId: sessionId,
@@ -19,8 +19,9 @@ public struct InlineTerminalAIAgentBarView: View {
                     appState: appState,
                     agentService: agentService
                 )
+                .frame(height: appState.inlineAgentPanelHeight)
 
-                // Draggable Resize Bar Handle
+                // Draggable Resize Bar Handle (Always active and draggable)
                 AgentResizeHandleView(appState: appState)
             } else {
                 // Default Natural Language Requirement Input Bar
@@ -48,13 +49,13 @@ struct AgentResizeHandleView: View {
             // Visual Grip Handle
             Capsule()
                 .fill(appState.isResizeHandleHovering ? Color.purple : Color.gray.opacity(0.4))
-                .frame(width: 42, height: 4)
+                .frame(width: 48, height: 4)
 
             Spacer()
         }
-        .frame(height: 8)
+        .frame(height: 9)
         .frame(maxWidth: .infinity)
-        .background(appState.isResizeHandleHovering ? Color.purple.opacity(0.12) : Color.black.opacity(0.2))
+        .background(appState.isResizeHandleHovering ? Color.purple.opacity(0.15) : Color(red: 12/255, green: 14/255, blue: 20/255))
         .contentShape(Rectangle())
         .onHover { hovering in
             appState.isResizeHandleHovering = hovering
@@ -68,7 +69,7 @@ struct AgentResizeHandleView: View {
             DragGesture(minimumDistance: 1)
                 .onChanged { gesture in
                     let newHeight = appState.inlineAgentInitialDragHeight + gesture.translation.height
-                    appState.inlineAgentPanelHeight = max(160, min(800, newHeight))
+                    appState.inlineAgentPanelHeight = max(160, min(850, newHeight))
                 }
                 .onEnded { _ in
                     appState.inlineAgentInitialDragHeight = appState.inlineAgentPanelHeight
@@ -77,7 +78,7 @@ struct AgentResizeHandleView: View {
     }
 }
 
-// MARK: - Active Mission Dashboard View (with Continuous Follow-up & Dynamic Height)
+// MARK: - Active Mission Dashboard View (Fully Locked Height & Continuous Follow-up)
 struct ActiveMissionDashboardView: View {
     let mission: DevOpsMission
     let sessionId: String
@@ -85,23 +86,19 @@ struct ActiveMissionDashboardView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var agentService: DevOpsAgentService
 
-    private var calculatedContentHeight: CGFloat {
-        max(120, appState.inlineAgentPanelHeight - 110)
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Mission Header
+        VStack(alignment: .leading, spacing: 6) {
+            // MARK: 1. Top Header Row (Fixed)
             HStack {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
                         .foregroundColor(.purple)
                         .font(.system(size: 13, weight: .bold))
-                    Text("AI DevOps 智能體任務:")
+                    Text("AI DevOps 智能體:")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.purple)
                     Text(mission.goal)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                 }
@@ -119,7 +116,7 @@ struct ActiveMissionDashboardView: View {
                     .font(.system(size: 9))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(appState.inlineAgentPanelHeight <= 240 ? Color.purple.opacity(0.3) : Color.black.opacity(0.2))
+                    .background(appState.inlineAgentPanelHeight <= 240 ? Color.purple.opacity(0.35) : Color.black.opacity(0.25))
                     .cornerRadius(3)
                     .buttonStyle(.plain)
 
@@ -132,7 +129,7 @@ struct ActiveMissionDashboardView: View {
                     .font(.system(size: 9))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background((appState.inlineAgentPanelHeight > 240 && appState.inlineAgentPanelHeight <= 450) ? Color.purple.opacity(0.3) : Color.black.opacity(0.2))
+                    .background((appState.inlineAgentPanelHeight > 240 && appState.inlineAgentPanelHeight <= 450) ? Color.purple.opacity(0.35) : Color.black.opacity(0.25))
                     .cornerRadius(3)
                     .buttonStyle(.plain)
 
@@ -145,7 +142,7 @@ struct ActiveMissionDashboardView: View {
                     .font(.system(size: 9))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(appState.inlineAgentPanelHeight > 450 ? Color.purple.opacity(0.3) : Color.black.opacity(0.2))
+                    .background(appState.inlineAgentPanelHeight > 450 ? Color.purple.opacity(0.35) : Color.black.opacity(0.25))
                     .cornerRadius(3)
                     .buttonStyle(.plain)
                 }
@@ -154,7 +151,7 @@ struct ActiveMissionDashboardView: View {
                 // Status Pill
                 StatusPillView(status: mission.status, currentStep: mission.steps.count)
 
-                // History Toggle
+                // History Toggle Button
                 if mission.steps.count > 1 {
                     Button(action: {
                         appState.inlineAgentHistoryExpanded.toggle()
@@ -207,139 +204,151 @@ struct ActiveMissionDashboardView: View {
                 .help("結束並關閉此任務")
             }
 
-            // Expanded Previous Steps History (if toggled)
-            if appState.inlineAgentHistoryExpanded && mission.steps.count > 1 {
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(mission.steps.dropLast()) { prevStep in
-                            HStack(alignment: .top, spacing: 6) {
-                                Image(systemName: prevStep.status == "success" ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                    .foregroundColor(prevStep.status == "success" ? .green : .red)
-                                    .font(.system(size: 10))
-                                    .padding(.top, 2)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("步驟 \(prevStep.stepNumber): \(prevStep.title)")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundColor(.white)
-                                    if !prevStep.command.isEmpty {
-                                        Text("$ \(prevStep.command)")
-                                            .font(.system(size: 9, design: .monospaced))
-                                            .foregroundColor(.green.opacity(0.8))
-                                            .lineLimit(1)
-                                    }
-                                }
-                                Spacer()
-                            }
-                            .padding(6)
-                            .background(Color.black.opacity(0.25))
-                            .cornerRadius(4)
-                        }
-                    }
-                }
-                .frame(maxHeight: 120)
-            }
-
-            // Dynamic Content Area (Steps or Conclusion Report)
-            if mission.status == .completed, let conclusion = mission.finalConclusion {
-                // Mission Conclusion (Full Dynamic Height Report)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundColor(.green)
-                            .font(.system(size: 13))
-                        Text("任務階段結論與分析報告:")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.green)
-                        Spacer()
-                    }
-
-                    ScrollView(.vertical, showsIndicators: true) {
-                        Text(conclusion)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.white)
-                            .lineSpacing(4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    .frame(height: calculatedContentHeight)
-                }
-                .padding(8)
-                .background(Color.green.opacity(0.12))
-                .cornerRadius(6)
-            } else if let currentStep = mission.steps.last {
-                // Current Step Execution Details
-                VStack(alignment: .leading, spacing: 6) {
-                    // Step Title & Thought
-                    HStack(alignment: .top, spacing: 6) {
-                        Text("步驟 \(currentStep.stepNumber):")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(.cyan)
-
-                        Text(currentStep.title)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-
-                    if !currentStep.thought.isEmpty {
-                        HStack(alignment: .top, spacing: 6) {
-                            Text("🧠 推論:")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.purple.opacity(0.9))
-                            Text(currentStep.thought)
-                                .font(.system(size: 10))
-                                .foregroundColor(.gray)
-                                .lineLimit(3)
-                        }
-                    }
-
-                    // Command Box
-                    if !currentStep.command.isEmpty {
+            // MARK: 2. Middle Content Area (Expands to fill available height)
+            ZStack {
+                if mission.status == .completed, let conclusion = mission.finalConclusion {
+                    // Completed Conclusion Report View
+                    VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("$")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            Image(systemName: "checkmark.seal.fill")
                                 .foregroundColor(.green)
-                            Text(currentStep.command)
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .font(.system(size: 12))
+                            Text("任務結論與分析報告:")
+                                .font(.system(size: 11, weight: .bold))
                                 .foregroundColor(.green)
-                                .lineLimit(2)
                             Spacer()
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(Color.black.opacity(0.4))
-                        .cornerRadius(4)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.green.opacity(0.3), lineWidth: 1))
-                    }
 
-                    // Observation Box (if any)
-                    if !currentStep.observation.isEmpty {
-                        HStack(alignment: .top, spacing: 6) {
-                            Text("📜 觀測:")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.orange)
-                            Text(currentStep.observation)
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(.orange.opacity(0.9))
-                                .lineLimit(3)
+                        ScrollView(.vertical, showsIndicators: true) {
+                            Text(conclusion)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.white)
+                                .lineSpacing(4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                                .padding(4)
                         }
                     }
-                }
-                .padding(8)
-                .background(Color(red: 20/255, green: 22/255, blue: 34/255))
-                .cornerRadius(6)
-            } else if mission.status == .planning {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("🧠 AI 正在分析伺服器環境與制定運維執行步驟...")
-                        .font(.system(size: 11))
-                        .foregroundColor(.purple)
-                }
-                .padding(8)
-            }
+                    .padding(8)
+                    .background(Color.green.opacity(0.08))
+                    .cornerRadius(6)
+                } else if appState.inlineAgentHistoryExpanded && mission.steps.count > 1 {
+                    // History Steps List
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(mission.steps) { step in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: step.status == "success" ? "checkmark.circle.fill" : (step.status == "running" ? "circle.dotted" : "xmark.circle.fill"))
+                                            .foregroundColor(step.status == "success" ? .green : (step.status == "running" ? .yellow : .red))
+                                            .font(.system(size: 10))
 
-            // Action Buttons for Step-by-Step Approval Mode
+                                        Text("步驟 \(step.stepNumber): \(step.title)")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white)
+                                    }
+
+                                    if !step.thought.isEmpty {
+                                        Text("🧠 \(step.thought)")
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.gray)
+                                            .lineLimit(2)
+                                    }
+
+                                    if !step.command.isEmpty {
+                                        Text("$ \(step.command)")
+                                            .font(.system(size: 9, design: .monospaced))
+                                            .foregroundColor(.green.opacity(0.9))
+                                            .lineLimit(1)
+                                    }
+
+                                    if !step.observation.isEmpty {
+                                        Text("📜 \(step.observation)")
+                                            .font(.system(size: 9, design: .monospaced))
+                                            .foregroundColor(.orange.opacity(0.85))
+                                            .lineLimit(2)
+                                    }
+                                }
+                                .padding(6)
+                                .background(Color.black.opacity(0.3))
+                                .cornerRadius(4)
+                            }
+                        }
+                        .padding(2)
+                    }
+                } else if let currentStep = mission.steps.last {
+                    // Current Step In-Progress View
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("步驟 \(currentStep.stepNumber):")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.cyan)
+
+                                Text(currentStep.title)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+
+                            if !currentStep.thought.isEmpty {
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("🧠 推論:")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.purple.opacity(0.9))
+                                    Text(currentStep.thought)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.gray)
+                                }
+                            }
+
+                            if !currentStep.command.isEmpty {
+                                HStack {
+                                    Text("$")
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.green)
+                                    Text(currentStep.command)
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.green)
+                                        .textSelection(.enabled)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(Color.black.opacity(0.4))
+                                .cornerRadius(4)
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.green.opacity(0.3), lineWidth: 1))
+                            }
+
+                            if !currentStep.observation.isEmpty {
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("📜 觀測:")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.orange)
+                                    Text(currentStep.observation)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(.orange.opacity(0.9))
+                                        .textSelection(.enabled)
+                                }
+                            }
+                        }
+                        .padding(6)
+                    }
+                    .background(Color(red: 20/255, green: 22/255, blue: 34/255))
+                    .cornerRadius(6)
+                } else if mission.status == .planning {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("🧠 AI 正在分析伺服器環境與制定運維執行步驟...")
+                            .font(.system(size: 11))
+                            .foregroundColor(.purple)
+                        Spacer()
+                    }
+                    .padding(8)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Step Approval Buttons (When waiting in manual mode)
             if mission.status == .waitingApproval {
                 HStack(spacing: 8) {
                     Spacer()
@@ -358,7 +367,7 @@ struct ActiveMissionDashboardView: View {
                 }
             }
 
-            // MARK: - CONTINUOUS FOLLOW-UP CONVERSATION INPUT BAR
+            // MARK: 3. Bottom Follow-up Input Bar (Fixed)
             HStack(spacing: 6) {
                 Image(systemName: "bubble.left.and.text.bubble.right.fill")
                     .foregroundColor(.purple)
@@ -400,11 +409,13 @@ struct ActiveMissionDashboardView: View {
                 .buttonStyle(.plain)
                 .font(.system(size: 10))
                 .foregroundColor(.gray)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 4)
             }
-            .padding(.top, 2)
+            .padding(.top, 1)
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     private func sendFollowUp() {

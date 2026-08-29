@@ -133,11 +133,16 @@ public class DevOpsAgentService: ObservableObject {
 
         【你的決策指令】:
         請根據目標、使用者後續需求與先前的觀測結果，進行嚴謹的 DevOps 思考與推論。
+        【指令語法關鍵要求】:
+        1. 輸出的 command 必須是可在 Bash 終端直接執行的單行乾淨指令。
+        2. 寫入多行配置檔案時，請使用標準的 `printf '%s\n' '配置內容1' '配置內容2' | sudo tee /路徑/檔案` 或 `echo -e "內容" | sudo tee /路徑/檔案`，嚴禁使用 `bash -c 'cat << '\''EOF'\'''` 等脆弱嵌套語法。
+        3. 若不需要執行指令（例如純分析報告或解答使用者問題），command 請留空字串 `""`，並將結論完整填寫在 finalConclusion。
+
         請「嚴格」只返回一個標準 JSON 格式物件，不要包含額外的 Markdown 閒聊文字，JSON 結構如下：
         {
           "thought": "繁體中文詳細思考：分析系統狀態與需求，決定這一步為什麼要執行此指令或如何回答",
           "stepTitle": "簡明步驟標題（例如：檢測目前 TCP 擁塞控制算法與核心版本）",
-          "command": "單行乾淨、安全且可直接執行的 Bash 指令（若僅需回覆說明或已無需執行命令，可為空字串）",
+          "command": "單行乾淨、安全且可直接執行的 Bash 指令（若僅需回覆說明或已無需執行命令，為空字串 \"\"）",
           "isFinal": false,
           "finalConclusion": "若 isFinal 為 true 或無需執行指令，在此填寫繁體中文的任務達成總結、深入分析報告或驗證結果；否則為空字串"
         }
