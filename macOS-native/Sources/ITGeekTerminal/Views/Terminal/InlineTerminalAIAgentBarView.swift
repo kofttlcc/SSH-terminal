@@ -10,7 +10,7 @@ public struct InlineTerminalAIAgentBarView: View {
     public var body: some View {
         VStack(spacing: 0) {
             if let mission = agentService.activeMissions[sessionId], mission.status != .idle && mission.status != .cancelled {
-                // Active Multi-step DevOps Mission Card
+                // Active Multi-step DevOps Mission Card with Ongoing Follow-up Dialogue
                 ActiveMissionDashboardView(
                     mission: mission,
                     sessionId: sessionId,
@@ -33,7 +33,7 @@ public struct InlineTerminalAIAgentBarView: View {
     }
 }
 
-// MARK: - Active Mission Dashboard View
+// MARK: - Active Mission Dashboard View (with Continuous Follow-up Support)
 struct ActiveMissionDashboardView: View {
     let mission: DevOpsMission
     let sessionId: String
@@ -63,6 +63,25 @@ struct ActiveMissionDashboardView: View {
                 // Status Pill
                 StatusPillView(status: mission.status, currentStep: mission.steps.count)
 
+                // History Toggle
+                if mission.steps.count > 1 {
+                    Button(action: {
+                        appState.inlineAgentHistoryExpanded.toggle()
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: appState.inlineAgentHistoryExpanded ? "chevron.up" : "chevron.down")
+                            Text("歷史步驟 (\(mission.steps.count))")
+                        }
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color(red: 20/255, green: 22/255, blue: 34/255))
+                        .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 // Autonomous Mode Toggle
                 Button(action: {
                     if var m = agentService.activeMissions[sessionId] {
@@ -74,7 +93,7 @@ struct ActiveMissionDashboardView: View {
                         Image(systemName: mission.isAutonomous ? "bolt.fill" : "hand.raised.fill")
                             .foregroundColor(mission.isAutonomous ? .green : .orange)
                             .font(.system(size: 10))
-                        Text(mission.isAutonomous ? "全自動執行" : "單步確認")
+                        Text(mission.isAutonomous ? "全自動閉環" : "單步確認")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(mission.isAutonomous ? .green : .orange)
                     }
@@ -85,7 +104,7 @@ struct ActiveMissionDashboardView: View {
                 }
                 .buttonStyle(.plain)
 
-                // Cancel Mission Button
+                // Close / Reset Mission Button
                 Button(action: {
                     agentService.cancelMission(sessionId: sessionId, appState: appState)
                 }) {
@@ -94,11 +113,44 @@ struct ActiveMissionDashboardView: View {
                         .foregroundColor(.gray)
                 }
                 .buttonStyle(.plain)
-                .help("終止當前任務")
+                .help("結束並關閉此任務")
+            }
+
+            // Expanded Previous Steps History (if toggled)
+            if appState.inlineAgentHistoryExpanded && mission.steps.count > 1 {
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(mission.steps.dropLast()) { prevStep in
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: prevStep.status == "success" ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundColor(prevStep.status == "success" ? .green : .red)
+                                    .font(.system(size: 10))
+                                    .padding(.top, 2)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("步驟 \(prevStep.stepNumber): \(prevStep.title)")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    if !prevStep.command.isEmpty {
+                                        Text("$ \(prevStep.command)")
+                                            .font(.system(size: 9, design: .monospaced))
+                                            .foregroundColor(.green.opacity(0.8))
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .padding(6)
+                            .background(Color.black.opacity(0.25))
+                            .cornerRadius(4)
+                        }
+                    }
+                }
+                .frame(maxHeight: 120)
             }
 
             // Current Step Details
-            if let currentStep = mission.steps.last {
+            if let currentStep = mission.steps.last, mission.status != .completed {
                 VStack(alignment: .leading, spacing: 6) {
                     // Step Title & Thought
                     HStack(alignment: .top, spacing: 6) {
@@ -169,21 +221,27 @@ struct ActiveMissionDashboardView: View {
                 .padding(8)
             }
 
-            // Mission Conclusion (When Completed)
-            if mission.status == .completed {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text(mission.finalConclusion ?? "任務已成功完成！")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.green)
-                    Spacer()
-                    Button("關閉任務") {
-                        agentService.activeMissions.removeValue(forKey: sessionId)
+            // Mission Conclusion (When Completed / Analyzed)
+            if mission.status == .completed, let conclusion = mission.finalConclusion {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(.green)
+                            .font(.system(size: 13))
+                        Text("任務階段結論與分析報告:")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.green)
+                        Spacer()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
-                    .controlSize(.small)
+
+                    ScrollView(.vertical, showsIndicators: true) {
+                        Text(conclusion)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 140)
                 }
                 .padding(8)
                 .background(Color.green.opacity(0.12))
@@ -208,8 +266,68 @@ struct ActiveMissionDashboardView: View {
                     .controlSize(.small)
                 }
             }
+
+            // MARK: - CONTINUOUS FOLLOW-UP CONVERSATION INPUT BAR
+            HStack(spacing: 6) {
+                Image(systemName: "bubble.left.and.text.bubble.right.fill")
+                    .foregroundColor(.purple)
+                    .font(.system(size: 12))
+
+                NativeMacOSTextField(
+                    text: $appState.inlineAgentFollowUpText,
+                    placeholder: "💬 深入追問或下達後續指令（例：幫我切換為方案 B、測試延遲、寫入開機自啟）...",
+                    fontSize: 11,
+                    isMonospaced: false,
+                    onSubmit: {
+                        sendFollowUp()
+                    }
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color(red: 24/255, green: 27/255, blue: 40/255))
+                .cornerRadius(6)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.purple.opacity(0.3), lineWidth: 1))
+
+                Button(action: sendFollowUp) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "paperplane.fill")
+                        Text("深入處理")
+                    }
+                    .font(.system(size: 10, weight: .bold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.purple)
+                    .foregroundColor(.white)
+                    .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+                .disabled(appState.inlineAgentFollowUpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || mission.status == .planning || mission.status == .executing)
+
+                Button("結束任務") {
+                    agentService.cancelMission(sessionId: sessionId, appState: appState)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10))
+                .foregroundColor(.gray)
+                .padding(.horizontal, 6)
+            }
+            .padding(.top, 2)
         }
         .padding(10)
+    }
+
+    private func sendFollowUp() {
+        let text = appState.inlineAgentFollowUpText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        appState.inlineAgentFollowUpText = ""
+        agentService.continueMission(
+            sessionId: sessionId,
+            followUp: text,
+            host: host,
+            isLocal: host == nil,
+            appState: appState
+        )
     }
 }
 
@@ -231,7 +349,7 @@ struct StatusPillView: View {
                 Text("等待確認").font(.system(size: 10, weight: .bold)).foregroundColor(.orange)
             case .completed:
                 Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundColor(.green)
-                Text("已完成").font(.system(size: 10, weight: .bold)).foregroundColor(.green)
+                Text("已完成/就緒").font(.system(size: 10, weight: .bold)).foregroundColor(.green)
             case .failed:
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 9, weight: .bold)).foregroundColor(.red)
                 Text("失敗").font(.system(size: 10, weight: .bold)).foregroundColor(.red)
@@ -274,7 +392,7 @@ struct CompactAgentInputBarView: View {
                 // Natural Language Command Input
                 NativeMacOSTextField(
                     text: $appState.inlineAIAgentInput,
-                    placeholder: "輸入運維目標（例：優化 TCP 參數並啟用 BBR、排查 80 端口佔用並重啟服務）...",
+                    placeholder: "輸入運維目標（例：分析 tc 服務、優化 TCP 參數並啟用 BBR、排查 80 端口）...",
                     fontSize: 12,
                     isMonospaced: false,
                     onSubmit: {
@@ -304,7 +422,7 @@ struct CompactAgentInputBarView: View {
                     .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
-                .help("全自動閉環：AI 智能體自動執行、獲取輸出、分析結果並推進下一步")
+                .help("全自動閉環：AI 智能體自動執行、獲取輸出、分析結果並連續推進")
 
                 // Execute Button
                 Button(action: startDevOpsMission) {

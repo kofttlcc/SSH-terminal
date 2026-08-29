@@ -52,6 +52,7 @@ public struct DevOpsMission: Identifiable, Codable {
     public var currentStepIndex: Int
     public var finalConclusion: String?
     public var errorMessage: String?
+    public var followUps: [String]
     public var createdAt: Date
 
     public init(
@@ -64,6 +65,7 @@ public struct DevOpsMission: Identifiable, Codable {
         currentStepIndex: Int = 0,
         finalConclusion: String? = nil,
         errorMessage: String? = nil,
+        followUps: [String] = [],
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -75,6 +77,7 @@ public struct DevOpsMission: Identifiable, Codable {
         self.currentStepIndex = currentStepIndex
         self.finalConclusion = finalConclusion
         self.errorMessage = errorMessage
+        self.followUps = followUps
         self.createdAt = createdAt
     }
 }

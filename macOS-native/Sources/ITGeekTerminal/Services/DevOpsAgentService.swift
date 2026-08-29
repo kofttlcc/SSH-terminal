@@ -46,6 +46,32 @@ public class DevOpsAgentService: ObservableObject {
         }
     }
 
+    // MARK: - Continue Mission with Follow-up Instruction
+    public func continueMission(
+        sessionId: String,
+        followUp: String,
+        host: HostItem?,
+        isLocal: Bool,
+        appState: AppState
+    ) {
+        guard var mission = activeMissions[sessionId] else { return }
+
+        mission.followUps.append(followUp)
+        mission.status = .planning
+        mission.finalConclusion = nil
+        mission.errorMessage = nil
+        self.activeMissions[sessionId] = mission
+
+        Task {
+            await self.planAndExecuteNextStep(
+                sessionId: sessionId,
+                host: host,
+                isLocal: isLocal,
+                appState: appState
+            )
+        }
+    }
+
     // MARK: - Plan and Execute Next Step (ReAct Loop)
     public func planAndExecuteNextStep(
         sessionId: String,
@@ -64,14 +90,23 @@ public class DevOpsAgentService: ObservableObject {
         // Build Multi-turn History Context for Agent
         var prompt = """
         你是一個具備自主決策能力的頂級「伺服器 DevOps 智能體 (Autonomous Infrastructure Agent)」。
-        當前運維目標：【\(mission.goal)】
+        初始運維目標：【\(mission.goal)】
+        """
 
-        【目標環境】
+        if !mission.followUps.isEmpty {
+            prompt += "\n【使用者提出的後續深入處理指令】:\n"
+            for (idx, fu) in mission.followUps.enumerated() {
+                prompt += "\(idx + 1). \(fu)\n"
+            }
+        }
+
+        prompt += """
+        \n【目標環境】
         - 類型: \(isLocal ? "本地 macOS Shell" : "遠端 SSH 主機 \(host?.label ?? "") (\(host?.hostname ?? ""):\(host?.port ?? 22))")
         - 用戶: \(host?.username ?? "root")
         - 作業系統: \(host?.osType ?? "Linux")
 
-        【目前已完成的步驟與終端回傳觀測 (History Steps)】:
+        【目前已執行的所有步驟與終端回傳觀測 (History Steps)】:
         """
 
         if mission.steps.isEmpty {
@@ -97,14 +132,14 @@ public class DevOpsAgentService: ObservableObject {
         ```
 
         【你的決策指令】:
-        請根據當前目標與先前的觀測結果，進行嚴謹的 DevOps 思考與推論。
+        請根據目標、使用者後續需求與先前的觀測結果，進行嚴謹的 DevOps 思考與推論。
         請「嚴格」只返回一個標準 JSON 格式物件，不要包含額外的 Markdown 閒聊文字，JSON 結構如下：
         {
-          "thought": "繁體中文詳細思考：分析前一步的輸出，判斷系統狀態，決定這一步為什麼要執行此指令",
+          "thought": "繁體中文詳細思考：分析系統狀態與需求，決定這一步為什麼要執行此指令或如何回答",
           "stepTitle": "簡明步驟標題（例如：檢測目前 TCP 擁塞控制算法與核心版本）",
-          "command": "單行乾淨、安全且可直接執行的 Bash 指令（嚴禁未閉合的多行 EOF 或無效續行符）",
+          "command": "單行乾淨、安全且可直接執行的 Bash 指令（若僅需回覆說明或已無需執行命令，可為空字串）",
           "isFinal": false,
-          "finalConclusion": "若 isFinal 為 true，在此填寫繁體中文的任務達成總結與驗證結果；否則為空字串"
+          "finalConclusion": "若 isFinal 為 true 或無需執行指令，在此填寫繁體中文的任務達成總結、深入分析報告或驗證結果；否則為空字串"
         }
         """
 
@@ -129,13 +164,13 @@ public class DevOpsAgentService: ObservableObject {
                 return
             }
 
-            if stepDecision.isFinal {
+            if stepDecision.isFinal || stepDecision.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if var m = self.activeMissions[sessionId] {
                     m.status = .completed
-                    m.finalConclusion = stepDecision.finalConclusion.isEmpty ? "任務已順利完成並成功驗證！" : stepDecision.finalConclusion
+                    m.finalConclusion = stepDecision.finalConclusion.isEmpty ? (stepDecision.thought.isEmpty ? "任務已順利完成並成功驗證！" : stepDecision.thought) : stepDecision.finalConclusion
                     self.activeMissions[sessionId] = m
                 }
-                appState.addToast("success", "🎉 AI DevOps 任務已成功完成！")
+                appState.addToast("success", "🎉 AI DevOps 任務已完成分析/執行！")
                 return
             }
 
