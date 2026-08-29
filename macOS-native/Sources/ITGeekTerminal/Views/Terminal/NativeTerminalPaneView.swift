@@ -138,11 +138,16 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
             sessionStarted = true
 
             let sid = pane.sessionId ?? pane.paneId
+            appState.updatePaneStatus(sessionId: sid, status: "connecting")
 
             if pane.isLocal {
                 if let existingPty = appState.localSessions[sid] {
                     existingPty.onDataReceived = { [weak self] data in
+                        self?.appState?.updatePaneStatus(sessionId: sid, status: "connected")
                         self?.writeToXterm(data: data)
+                    }
+                    existingPty.onTerminated = { [weak self] _ in
+                        self?.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
                     }
                     return
                 }
@@ -151,14 +156,28 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 appState.localSessions[sid] = pty
 
                 pty.onDataReceived = { [weak self] data in
+                    self?.appState?.updatePaneStatus(sessionId: sid, status: "connected")
                     self?.writeToXterm(data: data)
+                }
+
+                pty.onTerminated = { [weak self] _ in
+                    self?.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
                 }
 
                 _ = pty.start()
             } else if let host = pane.host {
                 if let existingSSH = appState.sshSessions[sid] {
                     existingSSH.onDataReceived = { [weak self] data in
+                        self?.appState?.updatePaneStatus(sessionId: sid, status: "connected")
                         self?.writeToXterm(data: data)
+                    }
+                    existingSSH.onClosed = { [weak self] in
+                        self?.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
+                        self?.writePlainText("\r\n\u{001B}[31m[連線已斷開]: SSH 會話已中斷連接。\u{001B}[0m\r\n")
+                    }
+                    existingSSH.onError = { [weak self] err in
+                        self?.appState?.updatePaneStatus(sessionId: sid, status: "error", errorMessage: err)
+                        self?.writePlainText("\r\n\u{001B}[31m[SSH 連線錯誤]: \(err)\u{001B}[0m\r\n")
                     }
                     return
                 }
@@ -179,10 +198,17 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                 appState.sshSessions[sid] = ssh
 
                 ssh.onDataReceived = { [weak self] data in
+                    self?.appState?.updatePaneStatus(sessionId: sid, status: "connected")
                     self?.writeToXterm(data: data)
                 }
 
+                ssh.onClosed = { [weak self] in
+                    self?.appState?.updatePaneStatus(sessionId: sid, status: "disconnected")
+                    self?.writePlainText("\r\n\u{001B}[31m[連線已斷開]: SSH 會話已中斷連接。\u{001B}[0m\r\n")
+                }
+
                 ssh.onError = { [weak self] err in
+                    self?.appState?.updatePaneStatus(sessionId: sid, status: "error", errorMessage: err)
                     self?.writePlainText("\r\n\u{001B}[31m[SSH 連線錯誤]: \(err)\u{001B}[0m\r\n")
                 }
 
@@ -195,6 +221,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                         )
                         if !res.success {
                             self.writePlainText("\r\n\u{001B}[31m[Touch ID 認證未通過]: \(res.error ?? "指紋識別未授權或已取消，連線已終止。")\u{001B}[0m\r\n")
+                            appState.updatePaneStatus(sessionId: sid, status: "disconnected")
                             appState.sshSessions.removeValue(forKey: sid)
                             return
                         }
@@ -217,6 +244,7 @@ public struct NativeTerminalPaneView: NSViewRepresentable {
                         },
                         onCancel: { [weak self] in
                             self?.writePlainText("\r\n\u{001B}[31m[YubiKey 認證已取消]: 連線已終止。\u{001B}[0m\r\n")
+                            appState.updatePaneStatus(sessionId: sid, status: "disconnected")
                             appState.sshSessions.removeValue(forKey: sid)
                         }
                     )

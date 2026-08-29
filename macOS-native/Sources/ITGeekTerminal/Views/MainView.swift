@@ -86,6 +86,20 @@ public struct MainView: View {
 struct TopTabBarView: View {
     @ObservedObject var appState: AppState
 
+    private func getStatusColor(for tab: TerminalTab) -> Color {
+        let status = tab.panes.first?.status ?? "connecting"
+        switch status {
+        case "connected":
+            return Color.green
+        case "connecting", "idle":
+            return Color.yellow
+        case "disconnected", "error":
+            return Color.red
+        default:
+            return Color.gray
+        }
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -93,11 +107,11 @@ struct TopTabBarView: View {
                     ForEach(appState.tabs) { tab in
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(appState.activeTabId == tab.id ? Color.green : Color.gray)
-                                .frame(width: 6, height: 6)
+                                .fill(getStatusColor(for: tab))
+                                .frame(width: 7, height: 7)
 
                             Text(tab.title)
-                                .font(.system(size: 11, weight: appState.activeTabId == tab.id ? .semibold : .regular))
+                                .font(.system(size: 12, weight: appState.activeTabId == tab.id ? .semibold : .regular))
                                 .foregroundColor(appState.activeTabId == tab.id ? .white : .gray)
                                 .lineLimit(1)
 
@@ -105,7 +119,7 @@ struct TopTabBarView: View {
                                 appState.closeTab(tabId: tab.id)
                             }) {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 8))
+                                    .font(.system(size: 9))
                                     .foregroundColor(.gray)
                             }
                             .buttonStyle(.plain)
@@ -119,10 +133,57 @@ struct TopTabBarView: View {
                             appState.activeView = "terminal"
                         }
                     }
+
+                    // New Tab Button
+                    Button(action: {
+                        appState.openLocalTerminal()
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.gray)
+                            .padding(6)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
             Spacer()
+
+            // AI Agent Toggle Button
+            Button(action: {
+                appState.inlineAIAgentOpen.toggle()
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .foregroundColor(appState.inlineAIAgentOpen ? .purple : .gray)
+                    Text("AI Agent (Cmd+K)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(appState.inlineAIAgentOpen ? .purple : .gray)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(appState.inlineAIAgentOpen ? Color.purple.opacity(0.18) : Color(red: 20/255, green: 22/255, blue: 34/255))
+                .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+
+            // AI Drawer Toggle Button
+            Button(action: {
+                appState.isDrawerOpen.toggle()
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .foregroundColor(appState.isDrawerOpen ? .cyan : .gray)
+                    Text("對話 (Cmd+L)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(appState.isDrawerOpen ? .cyan : .gray)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(appState.isDrawerOpen ? Color.cyan.opacity(0.18) : Color(red: 20/255, green: 22/255, blue: 34/255))
+                .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
 
             // Broadcast Toggle Button
             Button(action: {

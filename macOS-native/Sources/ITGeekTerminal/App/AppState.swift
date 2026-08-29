@@ -188,6 +188,21 @@ public class AppState: ObservableObject {
         sshSessions[sessionId]?.resize(rows: rows, cols: cols)
     }
 
+    public func updatePaneStatus(sessionId: String, status: String, errorMessage: String? = nil) {
+        DispatchQueue.main.async {
+            for tabIdx in 0..<self.tabs.count {
+                for paneIdx in 0..<self.tabs[tabIdx].panes.count {
+                    if self.tabs[tabIdx].panes[paneIdx].sessionId == sessionId || self.tabs[tabIdx].panes[paneIdx].paneId == sessionId {
+                        self.tabs[tabIdx].panes[paneIdx].status = status
+                        if let err = errorMessage {
+                            self.tabs[tabIdx].panes[paneIdx].errorMessage = err
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     public func sendCommandToTerminal(command: String, sessionId: String? = nil, bypassWarning: Bool = false) {
         guard !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
